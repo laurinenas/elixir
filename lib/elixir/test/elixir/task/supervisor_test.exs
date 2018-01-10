@@ -22,23 +22,20 @@ defmodule Task.SupervisorTest do
     number
   end
 
-  def sleep_and_return_ancestor(number, :another_arg) do
-    sleep_and_return_ancestor(number)
-  end
-
-  def sleep_and_return_ancestor(number) do
-    Process.sleep(number)
-    {:dictionary, dictionary} = Process.info(self(), :dictionary)
-
-    dictionary
-    |> Keyword.get(:"$ancestors")
-    |> List.first()
-  end
-
   test "can be supervised directly", config do
     modules = [{Task.Supervisor, name: config.test}]
     assert {:ok, _} = Supervisor.start_link(modules, strategy: :one_for_one)
     assert Process.whereis(config.test)
+  end
+
+  test "counts and returns children", config do
+    assert Task.Supervisor.children(config[:supervisor]) == []
+
+    assert Supervisor.count_children(config[:supervisor]) ==
+             %{active: 0, specs: 0, supervisors: 0, workers: 0}
+
+    assert DynamicSupervisor.count_children(config[:supervisor]) ==
+             %{active: 0, specs: 0, supervisors: 0, workers: 0}
   end
 
   test "async/1", config do
@@ -84,6 +81,17 @@ defmodule Task.SupervisorTest do
     assert Task.await(task) == :done
   end
 
+  test "async/1 with custom shutdown", config do
+    Process.flag(:trap_exit, true)
+    parent = self()
+
+    fun = fn -> wait_and_send(parent, :done) end
+    %{pid: pid} = Task.Supervisor.async(config[:supervisor], fun, shutdown: :brutal_kill)
+
+    Process.exit(config[:supervisor], :shutdown)
+    assert_receive {:DOWN, _, _, ^pid, :killed}
+  end
+
   test "async_nolink/1", config do
     parent = self()
     fun = fn -> wait_and_send(parent, :done) end
@@ -125,6 +133,17 @@ defmodule Task.SupervisorTest do
     send(task.pid, true)
     assert task.__struct__ == Task
     assert Task.await(task) == :done
+  end
+
+  test "async_nolink/1 with custom shutdown", config do
+    Process.flag(:trap_exit, true)
+    parent = self()
+
+    fun = fn -> wait_and_send(parent, :done) end
+    %{pid: pid} = Task.Supervisor.async_nolink(config[:supervisor], fun, shutdown: :brutal_kill)
+
+    Process.exit(config[:supervisor], :shutdown)
+    assert_receive {:DOWN, _, _, ^pid, :killed}
   end
 
   test "start_child/1", config do
@@ -171,6 +190,31 @@ defmodule Task.SupervisorTest do
     end
   end
 
+  test "start_child/1 with custom shutdown", config do
+    Process.flag(:trap_exit, true)
+    parent = self()
+
+    fun = fn -> wait_and_send(parent, :done) end
+    {:ok, pid} = Task.Supervisor.start_child(config[:supervisor], fun, shutdown: :brutal_kill)
+
+    Process.monitor(pid)
+    Process.exit(config[:supervisor], :shutdown)
+    assert_receive {:DOWN, _, _, ^pid, :killed}
+  end
+
+  test "start_child/1 with custom restart", config do
+    parent = self()
+
+    fun = fn -> wait_and_send(parent, :done) end
+    {:ok, pid} = Task.Supervisor.start_child(config[:supervisor], fun, restart: :permanent)
+
+    assert_receive :ready
+    Process.monitor(pid)
+    Process.exit(pid, :shutdown)
+    assert_receive {:DOWN, _, _, ^pid, :shutdown}
+    assert_receive :ready
+  end
+
   test "terminate_child/2", config do
     args = [self(), :done]
 
@@ -180,7 +224,7 @@ defmodule Task.SupervisorTest do
     assert Task.Supervisor.children(config[:supervisor]) == [pid]
     assert Task.Supervisor.terminate_child(config[:supervisor], pid) == :ok
     assert Task.Supervisor.children(config[:supervisor]) == []
-    assert Task.Supervisor.terminate_child(config[:supervisor], pid) == :ok
+    assert Task.Supervisor.terminate_child(config[:supervisor], pid) == {:error, :not_found}
   end
 
   describe "await/1" do
@@ -259,80 +303,6 @@ defmodule Task.SupervisorTest do
       assert supervisor
              |> Task.Supervisor.async_stream(collection, &sleep/1, @opts)
              |> Enum.take(1) == [ok: 0]
-
-      refute_received _
-    end
-
-    test "streams an enumerable with fun and supervisor fun", %{supervisor: supervisor} do
-      {:ok, other_supervisor} = Task.Supervisor.start_link()
-
-      assert fn i -> if rem(i, 2) == 0, do: supervisor, else: other_supervisor end
-             |> Task.Supervisor.async_stream(1..4, &sleep_and_return_ancestor/1, @opts)
-             |> Enum.to_list() ==
-               [ok: other_supervisor, ok: supervisor, ok: other_supervisor, ok: supervisor]
-    end
-
-    test "streams an enumerable with mfa and supervisor fun", %{supervisor: supervisor} do
-      {:ok, other_supervisor} = Task.Supervisor.start_link()
-      fun = :sleep_and_return_ancestor
-
-      assert fn i -> if rem(i, 2) == 0, do: supervisor, else: other_supervisor end
-             |> Task.Supervisor.async_stream(1..4, __MODULE__, fun, [], @opts)
-             |> Enum.to_list() ==
-               [ok: other_supervisor, ok: supervisor, ok: other_supervisor, ok: supervisor]
-    end
-
-    test "streams an enumerable with mfa with args and supervisor fun", %{supervisor: supervisor} do
-      {:ok, other_supervisor} = Task.Supervisor.start_link()
-      fun = :sleep_and_return_ancestor
-
-      assert fn i -> if rem(i, 2) == 0, do: supervisor, else: other_supervisor end
-             |> Task.Supervisor.async_stream(1..4, __MODULE__, fun, [:another_arg], @opts)
-             |> Enum.to_list() ==
-               [ok: other_supervisor, ok: supervisor, ok: other_supervisor, ok: supervisor]
-    end
-
-    test "streams an enumerable with fun and executes supervisor fun in monitor process", context do
-      %{supervisor: supervisor} = context
-      parent = self()
-
-      supervisor_fun =
-        fn _i ->
-          {:links, links} = Process.info(self(), :links)
-          assert parent in links
-          send(parent, {parent, self()})
-          supervisor
-        end
-
-      assert supervisor_fun
-             |> Task.Supervisor.async_stream(1..4, &sleep_and_return_ancestor/1, @opts)
-             |> Enum.to_list() == [ok: supervisor, ok: supervisor, ok: supervisor, ok: supervisor]
-
-      receive do
-        {^parent, linked} ->
-          for _ <- 1..3, do: assert_received({^parent, ^linked})
-      after
-        0 ->
-          flunk("Did not receive any message from monitor process.")
-      end
-    end
-
-    test "streams an enumerable with fun and bad supervisor fun" do
-      Process.flag(:trap_exit, true)
-
-      stream =
-        fn _i -> raise "bad" end
-        |> Task.Supervisor.async_stream(1..4, &sleep_and_return_ancestor/1, @opts)
-
-      assert {{%RuntimeError{message: "bad"}, _stacktrace}, _mfa} = catch_exit(Stream.run(stream))
-
-      refute_received _
-
-      stream =
-        fn _i -> :not_a_supervisor end
-        |> Task.Supervisor.async_stream(1..4, &sleep_and_return_ancestor/1, @opts)
-
-      assert {{:noproc, _stacktrace}, _mfa} = catch_exit(Stream.run(stream))
 
       refute_received _
     end

@@ -54,10 +54,19 @@ defmodule Record do
       that contains the record definition to extract; with this option, this
       function uses the same path lookup used by the `-include` attribute used in
       Erlang modules.
+
     * `:from_lib` - (binary representing a path to a file) path to the Erlang
       file that contains the record definition to extract; with this option,
       this function uses the same path lookup used by the `-include_lib`
       attribute used in Erlang modules.
+
+    * `:includes` - (a list of directories as binaries) if the record being
+      extracted depends on relative includes, this option allows developers
+      to specify the directory those relative includes exist
+
+    * `:macros` - (keyword list of macro names and values) if the record
+      being extract depends on the values of macros, this option allows
+      the value of those macros to be set
 
   These options are expected to be literals (including the binary values) at
   compile time.
@@ -117,24 +126,9 @@ defmodule Record do
       true
 
   """
-  defmacro is_record(data, kind) do
-    case Macro.Env.in_guard?(__CALLER__) do
-      true ->
-        quote do
-          is_atom(unquote(kind)) and is_tuple(unquote(data)) and tuple_size(unquote(data)) > 0 and
-            elem(unquote(data), 0) == unquote(kind)
-        end
-
-      false ->
-        quote do
-          result = unquote(data)
-          kind = unquote(kind)
-
-          is_atom(kind) and is_tuple(result) and tuple_size(result) > 0 and
-            elem(result, 0) == kind
-        end
-    end
-  end
+  defguard is_record(data, kind)
+           when is_atom(kind) and is_tuple(data) and tuple_size(data) > 0 and
+                  elem(data, 0) == kind
 
   @doc """
   Checks if the given `data` is a record.
@@ -151,21 +145,8 @@ defmodule Record do
       false
 
   """
-  defmacro is_record(data) do
-    case Macro.Env.in_guard?(__CALLER__) do
-      true ->
-        quote do
-          is_tuple(unquote(data)) and tuple_size(unquote(data)) > 0 and
-            is_atom(elem(unquote(data), 0))
-        end
-
-      false ->
-        quote do
-          result = unquote(data)
-          is_tuple(result) and tuple_size(result) > 0 and is_atom(elem(result, 0))
-        end
-    end
-  end
+  defguard is_record(data)
+           when is_tuple(data) and tuple_size(data) > 0 and is_atom(elem(data, 0))
 
   @doc """
   Defines a set of macros to create, access, and pattern match

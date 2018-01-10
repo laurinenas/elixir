@@ -41,6 +41,7 @@ defmodule MapSet do
   @opaque t(value) :: %__MODULE__{map: %{optional(value) => []}}
   @type t :: t(term)
 
+  # TODO: Remove version key on Elixir 2.0
   defstruct map: %{}, version: 2
 
   @doc """
@@ -169,11 +170,8 @@ defmodule MapSet do
 
   defp filter_not_in([key | rest], map2, acc) do
     case map2 do
-      %{^key => _} ->
-        filter_not_in(rest, map2, acc)
-
-      _ ->
-        filter_not_in(rest, map2, [{key, @dummy_value} | acc])
+      %{^key => _} -> filter_not_in(rest, map2, acc)
+      _ -> filter_not_in(rest, map2, [{key, @dummy_value} | acc])
     end
   end
 
@@ -211,7 +209,7 @@ defmodule MapSet do
   @doc """
   Checks if two sets are equal.
 
-  The comparison between elements must be done using `===`.
+  The comparison between elements must be done using `===/2`.
 
   ## Examples
 
@@ -366,20 +364,32 @@ defmodule MapSet do
   defp order_by_size(map1, map2), do: {map1, map2}
 
   defimpl Enumerable do
-    def reduce(map_set, acc, fun), do: Enumerable.List.reduce(MapSet.to_list(map_set), acc, fun)
-    def member?(map_set, val), do: {:ok, MapSet.member?(map_set, val)}
-    def count(map_set), do: {:ok, MapSet.size(map_set)}
+    def count(map_set) do
+      {:ok, MapSet.size(map_set)}
+    end
+
+    def member?(map_set, val) do
+      {:ok, MapSet.member?(map_set, val)}
+    end
+
+    def slice(map_set) do
+      {:ok, MapSet.size(map_set), &Enumerable.List.slice(MapSet.to_list(map_set), &1, &2)}
+    end
+
+    def reduce(map_set, acc, fun) do
+      Enumerable.List.reduce(MapSet.to_list(map_set), acc, fun)
+    end
   end
 
   defimpl Collectable do
-    def into(original) do
+    def into(map_set) do
       fun = fn
-        map_set, {:cont, x} -> MapSet.put(map_set, x)
-        map_set, :done -> map_set
+        list, {:cont, x} -> [{x, []} | list]
+        list, :done -> %{map_set | map: Map.merge(map_set.map, Map.new(list))}
         _, :halt -> :ok
       end
 
-      {original, fun}
+      {[], fun}
     end
   end
 

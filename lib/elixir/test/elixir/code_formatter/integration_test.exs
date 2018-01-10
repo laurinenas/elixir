@@ -41,7 +41,7 @@ defmodule Code.Formatter.IntegrationTest do
     case meta[:format] do
       :list_heredoc ->
         string = list |> List.to_string() |> escape_string(:heredoc)
-        {@single_heredoc |> line(string) |> concat(@single_heredoc) |> force_break(), state}
+        {@single_heredoc |> line(string) |> concat(@single_heredoc) |> force_unfit(), state}
 
       :charlist ->
         string = list |> List.to_string() |> escape_string(@single_quote)
@@ -129,17 +129,24 @@ defmodule Code.Formatter.IntegrationTest do
 
     assert_same """
     @spec send(dest, msg, [option]) :: :ok | :noconnect | :nosuspend
-          when dest: pid
-                     | port
-                     | atom
-                     | {atom, node}
-                     | and_a_really_long_type_to_force_a_line_break
-                     | followed_by_another_really_long_type
+          when dest:
+                 pid
+                 | port
+                 | atom
+                 | {atom, node}
+                 | and_a_really_long_type_to_force_a_line_break
+                 | followed_by_another_really_long_type
     """
 
     assert_same """
     @callback get_and_update(data, key, (value -> {get_value, value} | :pop)) :: {get_value, data}
               when get_value: var, data: container
+    """
+  end
+
+  test "spec with multiple keys on type" do
+    assert_same """
+    @spec foo(%{(String.t() | atom) => any}) :: any
     """
   end
 
@@ -326,5 +333,118 @@ defmodule Code.Formatter.IntegrationTest do
       end
       """
     end)
+  end
+
+  test "anonymous function with parens around integer argument" do
+    bad = """
+    fn (1) -> "hello" end
+    """
+
+    assert_format bad, """
+    fn 1 -> "hello" end
+    """
+  end
+
+  test "no parens keywords right on line limit" do
+    bad = """
+    defmodule Mod do
+      defp token_list_downcase(<<char, rest::binary>>, acc) when is_whitespace(char) or is_comma(char), do: token_list_downcase(rest, acc)
+      defp token_list_downcase(some_really_long_arg11, some_really_long_arg22, some_really_long_arg33), do: token_list_downcase(rest, acc)
+    end
+    """
+
+    assert_format bad, """
+    defmodule Mod do
+      defp token_list_downcase(<<char, rest::binary>>, acc) when is_whitespace(char) or is_comma(char),
+        do: token_list_downcase(rest, acc)
+
+      defp token_list_downcase(some_really_long_arg11, some_really_long_arg22, some_really_long_arg33),
+        do: token_list_downcase(rest, acc)
+    end
+    """
+  end
+
+  test "do at the end of the line" do
+    bad = """
+    foo bar, baz, quux do
+      :ok
+    end
+    """
+
+    good = """
+    foo bar,
+        baz,
+        quux do
+      :ok
+    end
+    """
+
+    assert_format bad, good, line_length: 18
+  end
+
+  test "tuples as trees" do
+    bad = """
+    @document Parser.parse(
+      {"html", [], [
+         {"head", [], []},
+         {"body", [], [
+              {"div", [], [
+                  {"p", [], ["1"]},
+                  {"p", [], ["2"]},
+                  {"div", [], [
+                      {"p", [], ["3"]},
+                      {"p", [], ["4"]}]},
+                  {"p", [], ["5"]}]}]}]})
+    """
+
+    assert_format bad, """
+    @document Parser.parse(
+                {"html", [], [
+                  {"head", [], []},
+                  {"body", [], [
+                    {"div", [], [
+                      {"p", [], ["1"]},
+                      {"p", [], ["2"]},
+                      {"div", [], [{"p", [], ["3"]}, {"p", [], ["4"]}]},
+                      {"p", [], ["5"]}
+                    ]}
+                  ]}
+                ]}
+              )
+    """
+  end
+
+  test "first argument in a call without parens" do
+    bad = """
+    with bar ::
+           :ok
+           | :invalid
+           # | :unknown
+           | :other
+    """
+
+    assert_format bad, """
+    # | :unknown
+    with bar ::
+           :ok
+           | :invalid
+           | :other
+    """
+
+    bad = """
+    @spec bar ::
+            :ok
+            | :invalid
+            # | :unknown
+            | :other
+    """
+
+    assert_format bad, """
+    # | :unknown
+    @spec bar ::
+            :ok
+            | :invalid
+            | :other
+    """
   end
 end

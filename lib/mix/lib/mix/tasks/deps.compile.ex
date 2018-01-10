@@ -112,8 +112,9 @@ defmodule Mix.Tasks.Deps.Compile do
 
   defp touch_fetchable(scm, path) do
     if scm.fetchable? do
+      path = Path.join(path, ".mix")
       File.mkdir_p!(path)
-      File.touch!(Path.join(path, ".compile.fetch"))
+      File.touch!(Path.join(path, "compile.fetch"))
       true
     else
       false
@@ -261,11 +262,13 @@ defmodule Mix.Tasks.Deps.Compile do
     end
   end
 
-  defp do_command(%Mix.Dep{app: app, opts: opts}, config, command, print_app?, env \\ []) do
-    File.cd!(opts[:dest], fn ->
-      env = [{"ERL_LIBS", Path.join(config[:env_path], "lib")}] ++ env
+  defp do_command(dep, config, command, print_app?, env \\ []) do
+    %Mix.Dep{app: app, system_env: system_env, opts: opts} = dep
 
-      if Mix.Shell.cmd(command, env: env, into: %Mix.Shell{print_app?: print_app?}) != 0 do
+    File.cd!(opts[:dest], fn ->
+      env = [{"ERL_LIBS", Path.join(config[:env_path], "lib")} | system_env] ++ env
+
+      if Mix.shell().cmd(command, env: env, print_app: print_app?) != 0 do
         Mix.raise(
           "Could not compile dependency #{inspect(app)}, \"#{command}\" command failed. " <>
             "You can recompile this dependency with \"mix deps.compile #{app}\", update it " <>

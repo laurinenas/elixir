@@ -19,6 +19,9 @@ alias ExUnit.AssertionsTest.{BrokenError, Value}
 defmodule ExUnit.AssertionsTest do
   use ExUnit.Case, async: true
 
+  defmacro sigil_l({:<<>>, _, [string]}, _), do: Code.string_to_quoted!(string, [])
+  defmacro argless_macro(), do: raise("should not be invoked")
+
   defmacrop assert_ok(arg) do
     quote do
       assert {:ok, val} = ok(unquote(arg))
@@ -72,6 +75,20 @@ defmodule ExUnit.AssertionsTest do
         2 = error.right
         "assert(1 == 1 + 1)" = error.expr |> Macro.to_string()
     end
+  end
+
+  test "assert exposes nested macro variables in matches" do
+    assert ~l(a) = 1
+    assert a == 1
+
+    assert {~l(b), ~l(c)} = {2, 3}
+    assert b == 2
+    assert c == 3
+  end
+
+  test "assert does not expand variables" do
+    assert argless_macro = 1
+    assert argless_macro == 1
   end
 
   test "refute when value is false" do
@@ -206,6 +223,22 @@ defmodule ExUnit.AssertionsTest do
     end
   end
 
+  test "assert_receive exposes nested macro variables" do
+    send(self(), {:hello})
+    assert_receive {~l(a)}, 0, "failure message"
+
+    assert a == :hello
+  end
+
+  require Record
+  Record.defrecordp(:vec, x: 0, y: 0, z: 0)
+
+  test "assert_receive should not expand argument" do
+    {x, y, z} = {1, 2, 3}
+    send(self(), vec(x: x, y: y, z: z))
+    assert_receive vec(x: ^x, y: ^y)
+  end
+
   test "assert received does not wait" do
     send(self(), :hello)
     :hello = assert_received :hello
@@ -241,12 +274,7 @@ defmodule ExUnit.AssertionsTest do
     send(self(), {:status, :invalid, :invalid})
 
     try do
-      "This should never be tested" =
-        assert_received {
-          :status,
-          ^status,
-          ^status
-        }
+      "This should never be tested" = assert_received {:status, ^status, ^status}
     rescue
       error in [ExUnit.AssertionError] ->
         """
@@ -265,12 +293,7 @@ defmodule ExUnit.AssertionsTest do
     send(self(), {:status, :invalid, :invalid})
 
     try do
-      "This should never be tested" =
-        assert_received {
-          :status,
-          ^status,
-          ^other_status
-        }
+      "This should never be tested" = assert_received {:status, ^status, ^other_status}
     rescue
       error in [ExUnit.AssertionError] ->
         """
@@ -644,11 +667,16 @@ defmodule ExUnit.AssertionsTest do
     end
   end
 
+  test "assert in delta works with equal values and a delta of zero" do
+    assert_in_delta(10, 10, 0)
+  end
+
   test "assert in delta error" do
     "This should never be tested" = assert_in_delta(10, 12, 1)
   rescue
     error in [ExUnit.AssertionError] ->
-      "Expected the difference between 10 and 12 (2) to be less than 1" = error.message
+      "Expected the difference between 10 and 12 (2) to be less than or equal to 1" =
+        error.message
   end
 
   test "assert in delta with message" do

@@ -28,9 +28,7 @@ defmodule Integer do
       false
 
   """
-  defmacro is_odd(integer) do
-    quote(do: (unquote(integer) &&& 1) == 1)
-  end
+  defguard is_odd(integer) when is_integer(integer) and (integer &&& 1) == 1
 
   @doc """
   Determines if an `integer` is even.
@@ -55,9 +53,7 @@ defmodule Integer do
       true
 
   """
-  defmacro is_even(integer) do
-    quote(do: (unquote(integer) &&& 1) == 0)
-  end
+  defguard is_even(integer) when is_integer(integer) and (integer &&& 1) == 0
 
   @doc """
   Computes the modulo remainder of an integer division.
@@ -142,10 +138,7 @@ defmodule Integer do
     do_digits(integer, base, [])
   end
 
-  defp do_digits(digit, base, []) when abs(digit) < base, do: [digit]
-  defp do_digits(digit, base, []) when digit == -base, do: [-1, 0]
-  defp do_digits(base, base, []), do: [1, 0]
-  defp do_digits(0, _base, acc), do: acc
+  defp do_digits(integer, base, acc) when abs(integer) < base, do: [integer | acc]
 
   defp do_digits(integer, base, acc),
     do: do_digits(div(integer, base), base, [rem(integer, base) | acc])
@@ -173,10 +166,6 @@ defmodule Integer do
     do_undigits(digits, base, 0)
   end
 
-  defp do_undigits([], _base, 0), do: 0
-  defp do_undigits([digit], base, 0) when is_integer(digit) and digit < base, do: digit
-  defp do_undigits([1, 0], base, 0), do: base
-  defp do_undigits([0 | tail], base, 0), do: do_undigits(tail, base, 0)
   defp do_undigits([], _base, acc), do: acc
 
   defp do_undigits([digit | _], base, _) when is_integer(digit) and digit >= base,

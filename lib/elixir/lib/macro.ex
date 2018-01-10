@@ -404,7 +404,8 @@ defmodule Macro do
 
   defp find_invalid({left, right}), do: find_invalid(left) || find_invalid(right)
 
-  defp find_invalid({left, meta, right}) when is_list(meta) and (is_atom(right) or is_list(right)),
+  defp find_invalid({left, meta, right})
+       when is_list(meta) and (is_atom(right) or is_list(right)),
        do: find_invalid(left) || find_invalid(right)
 
   defp find_invalid(list) when is_list(list), do: Enum.find_value(list, &find_invalid/1)
@@ -946,7 +947,7 @@ defmodule Macro do
 
   defp kw_list_to_string(list, fun) do
     Enum.map_join(list, ", ", fn {key, value} ->
-      Identifier.inspect_as_key(key) <> to_string(value, fun)
+      Identifier.inspect_as_key(key) <> " " <> to_string(value, fun)
     end)
   end
 
@@ -1268,12 +1269,12 @@ defmodule Macro do
   end
 
   defp do_underscore(<<h, t, rest::binary>>, _)
-       when h >= ?A and h <= ?Z and not(t >= ?A and t <= ?Z) and t != ?. and t != ?_ do
+       when h >= ?A and h <= ?Z and not (t >= ?A and t <= ?Z) and t != ?. and t != ?_ do
     <<?_, to_lower_char(h), t>> <> do_underscore(rest, t)
   end
 
   defp do_underscore(<<h, t::binary>>, prev)
-       when h >= ?A and h <= ?Z and not(prev >= ?A and prev <= ?Z) and prev != ?_ do
+       when h >= ?A and h <= ?Z and not (prev >= ?A and prev <= ?Z) and prev != ?_ do
     <<?_, to_lower_char(h)>> <> do_underscore(t, h)
   end
 

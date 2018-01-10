@@ -36,13 +36,34 @@ defmodule Mix.Dep.Loader do
     only != nil and env not in List.wrap(only)
   end
 
+  def with_system_env(%Mix.Dep{system_env: []}, callback), do: callback.()
+
+  def with_system_env(%Mix.Dep{system_env: new_env}, callback) do
+    old_env =
+      for {key, _} <- new_env do
+        {key, System.get_env(key)}
+      end
+
+    try do
+      System.put_env(new_env)
+      callback.()
+    after
+      for {key, value} <- old_env do
+        if value do
+          System.put_env(key, value)
+        else
+          System.delete_env(key)
+        end
+      end
+    end
+  end
+
   @doc """
   Loads the given dependency information, including its
   latest status and children.
   """
   def load(%Mix.Dep{manager: manager, scm: scm, opts: opts} = dep, children) do
     manager = scm_manager(scm, opts) || manager || infer_manager(opts[:dest])
-
     dep = %{dep | manager: manager, status: scm_status(scm, opts)}
 
     {dep, children} =
@@ -140,6 +161,7 @@ defmodule Mix.Dep.Loader do
       |> Keyword.put(:dest, dest)
       |> Keyword.put(:build, build)
 
+    {system_env, opts} = Keyword.pop(opts, :system_env, [])
     {scm, opts} = get_scm(app, opts)
 
     {scm, opts} =
@@ -161,7 +183,8 @@ defmodule Mix.Dep.Loader do
       app: app,
       requirement: req,
       status: scm_status(scm, opts),
-      opts: Keyword.put_new(opts, :env, :prod)
+      opts: Keyword.put_new(opts, :env, :prod),
+      system_env: system_env
     }
   end
 
@@ -355,7 +378,7 @@ defmodule Mix.Dep.Loader do
     scm.fetchable? &&
       Mix.Utils.stale?(
         join_stale(opts, :dest, ".fetch"),
-        join_stale(opts, :build, ".compile.fetch")
+        join_stale(opts, :build, ".mix/compile.fetch")
       )
   end
 

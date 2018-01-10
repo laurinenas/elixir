@@ -33,8 +33,18 @@ defmodule IEx.HelpersTest do
         on_exit(fn -> IEx.Pry.remove_breaks() end)
       end
 
-      test "sets up a breakpoint with macro syntax" do
+      test "sets up a breakpoint with capture syntax" do
         assert break!(URI.decode_query() / 2) == 1
+        assert IEx.Pry.breaks() == [{1, URI, {:decode_query, 2}, 1}]
+      end
+
+      test "sets up a breakpoint with call syntax" do
+        assert break!(URI.decode_query(_, %{})) == 1
+        assert IEx.Pry.breaks() == [{1, URI, {:decode_query, 2}, 1}]
+      end
+
+      test "sets up a breakpoint with guards syntax" do
+        assert break!(URI.decode_query(_, map) when is_map(map)) == 1
         assert IEx.Pry.breaks() == [{1, URI, {:decode_query, 2}, 1}]
       end
 
@@ -65,6 +75,12 @@ defmodule IEx.HelpersTest do
         assert break!(URI.decode_query() / 2) == 1
         assert remove_breaks() == :ok
         assert IEx.Pry.breaks() == []
+      end
+
+      test "errors when setting up a breakpoint with invalid guard" do
+        assert_raise CompileError, ~r"cannot invoke local is_whatever/1 inside guard", fn ->
+          break!(URI.decode_query(_, map) when is_whatever(map))
+        end
       end
 
       test "errors when setting up a break with no beam" do
@@ -206,7 +222,7 @@ defmodule IEx.HelpersTest do
     end
 
     test "errors OTP preloaded module" do
-      assert capture_iex("open(:init)") == "Could not open: :init. Module is not available."
+      assert capture_iex("open(:init)") =~ ~r"(Could not open)|(Invalid arguments)"
     end
 
     test "errors if module is not available" do
@@ -300,6 +316,59 @@ defmodule IEx.HelpersTest do
       assert "* IEx.Helpers\n\nWelcome to Interactive Elixir" <> _ = capture_iex("h()")
     end
 
+    test "prints non-Elixir module specs" do
+      assert capture_io(fn -> h(:timer.nonexistent_function()) end) ==
+               "No documentation for :timer.nonexistent_function was found\n"
+
+      assert capture_io(fn -> h(:timer.nonexistent_function() / 1) end) ==
+               "No documentation for :timer.nonexistent_function/1 was found\n"
+
+      assert capture_io(fn -> h(:erlang.trace_pattern()) end) ==
+               "No documentation for :erlang.trace_pattern was found\n"
+
+      assert capture_io(fn -> h(:erlang.trace_pattern() / 2) end) ==
+               "No documentation for :erlang.trace_pattern/2 was found\n"
+
+      assert capture_io(fn -> h(:timer.sleep() / 1) end) == """
+             * :timer.sleep/1
+
+                 @spec sleep(time) :: :ok when Time: timeout(), time: var
+
+             Documentation is not available for non-Elixir modules. Showing only specs.
+             """
+
+      assert capture_io(fn -> h(:timer.send_interval()) end) == """
+             * :timer.send_interval/3
+
+                 @spec send_interval(time, pid, message) :: {:ok, tRef} | {:error, reason}
+                       when Time: time(),
+                            Pid: pid() | (regName :: atom()),
+                            Message: term(),
+                            TRef: tref(),
+                            Reason: term(),
+                            time: var,
+                            pid: var,
+                            message: var,
+                            tRef: var,
+                            reason: var
+
+             Documentation is not available for non-Elixir modules. Showing only specs.
+             * :timer.send_interval/2
+
+                 @spec send_interval(time, message) :: {:ok, tRef} | {:error, reason}
+                       when Time: time(),
+                            Message: term(),
+                            TRef: tref(),
+                            Reason: term(),
+                            time: var,
+                            message: var,
+                            tRef: var,
+                            reason: var
+
+             Documentation is not available for non-Elixir modules. Showing only specs.
+             """
+    end
+
     test "prints module documentation" do
       assert "* IEx.Helpers\n\nWelcome to Interactive Elixir" <> _ =
                capture_io(fn -> h(IEx.Helpers) end)
@@ -308,20 +377,27 @@ defmodule IEx.HelpersTest do
                "Could not load module :whatever, got: nofile\n"
 
       assert capture_io(fn -> h(:lists) end) ==
-               ":lists is an Erlang module and, as such, it does not have Elixir-style docs\n"
+               "Documentation is not available for non-Elixir modules, got: :lists\n"
     end
 
-    test "prints function documentation" do
+    test "prints function/macro documentation" do
       pwd_h = "* def pwd()\n\nPrints the current working directory.\n\n"
       c_h = "* def c(files, path \\\\ :in_memory)\n\nCompiles the given files."
-      eq_h = "* def ==(left, right)\n\nReturns `true` if the two items are equal.\n\n"
+
+      eq_h =
+        "* def ==(left, right)\n\n    @spec term() == term() :: boolean()\n\nReturns `true` if the two items are equal.\n\n"
+
+      def_h =
+        "* defmacro def(call, expr \\\\ nil)\n\nDefines a function with the given name and body."
 
       assert capture_io(fn -> h(IEx.Helpers.pwd() / 0) end) =~ pwd_h
       assert capture_io(fn -> h(IEx.Helpers.c() / 2) end) =~ c_h
       assert capture_io(fn -> h(== / 2) end) =~ eq_h
+      assert capture_io(fn -> h(def / 2) end) =~ def_h
 
       assert capture_io(fn -> h(IEx.Helpers.c() / 1) end) =~ c_h
       assert capture_io(fn -> h(pwd) end) =~ pwd_h
+      assert capture_io(fn -> h(def) end) =~ def_h
     end
 
     test "prints __info__ documentation" do
@@ -388,7 +464,7 @@ defmodule IEx.HelpersTest do
         assert c(files, ".") |> Enum.sort() == [Impl, MyBehaviour]
 
         assert capture_io(fn -> h(Impl.first() / 1) end) ==
-                 "* @callback first(integer()) :: integer()\n\nDocs for MyBehaviour.first\n"
+                 "@callback first(integer()) :: integer()\n\nDocs for MyBehaviour.first\n"
 
         assert capture_io(fn -> h(Impl.second() / 1) end) ==
                  "* def second(int)\n\nDocs for Impl.second/1\n"
@@ -397,7 +473,7 @@ defmodule IEx.HelpersTest do
                  "* def second(int1, int2)\n\nDocs for Impl.second/2\n"
 
         assert capture_io(fn -> h(Impl.first()) end) ==
-                 "* @callback first(integer()) :: integer()\n\nDocs for MyBehaviour.first\n"
+                 "@callback first(integer()) :: integer()\n\nDocs for MyBehaviour.first\n"
 
         assert capture_io(fn -> h(Impl.second()) end) ==
                  "* def second(int)\n\nDocs for Impl.second/1\n* def second(int1, int2)\n\nDocs for Impl.second/2\n"
@@ -419,32 +495,32 @@ defmodule IEx.HelpersTest do
       cleanup_modules([Impl, MyBehaviour])
     end
 
-    test "prints documentation for delegates" do
-      filename = "delegate.ex"
+    test "prints modules compiled without docs" do
+      Code.compiler_options(docs: false)
 
       content = """
-      defmodule Delegator do
-        defdelegate func1, to: Delegated
-        @doc "Delegator func2 doc"
-        defdelegate func2, to: Delegated
-      end
-      defmodule Delegated do
-        def func1, do: 1
-        def func2, do: 2
+      defmodule Sample do
+        @spec foo(any()) :: any()
+        def foo(arg), do: arg
       end
       """
 
+      filename = "sample.ex"
+
       with_file(filename, content, fn ->
-        assert c(filename, ".") |> Enum.sort() == [Delegated, Delegator]
+        assert c(filename, ".") == [Sample]
 
-        assert capture_io(fn -> h(Delegator.func1()) end) ==
-                 "* def func1()\n\nSee `Delegated.func1/0`.\n"
+        assert capture_io(fn -> h(Sample.foo() / 1) end) == """
+               * Sample.foo/1
 
-        assert capture_io(fn -> h(Delegator.func2()) end) ==
-                 "* def func2()\n\nDelegator func2 doc\n"
+                   @spec foo(any()) :: any()
+
+               Module was compiled without docs. Showing only specs.
+               """
       end)
     after
-      cleanup_modules([Delegated, Delegator])
+      Code.compiler_options(docs: true)
+      cleanup_modules([Sample])
     end
   end
 
@@ -455,6 +531,7 @@ defmodule IEx.HelpersTest do
 
       assert capture_io(fn -> b(Mix.SCM) end) =~ """
              @callback accepts_options(app :: atom(), opts()) :: opts() | nil
+
              @callback checked_out?(opts()) :: boolean()
              """
     end
@@ -464,13 +541,14 @@ defmodule IEx.HelpersTest do
 
       content = """
       defmodule MultipleClauseCallback do
+        @doc "callback"
         @callback test(:foo) :: integer
         @callback test(:bar) :: [integer]
       end
       """
 
       with_file(filename, content, fn ->
-        assert c(filename, ".") |> Enum.sort() == [MultipleClauseCallback]
+        assert c(filename, ".") == [MultipleClauseCallback]
 
         assert capture_io(fn -> b(MultipleClauseCallback) end) =~ """
                @callback test(:foo) :: integer()
@@ -486,12 +564,12 @@ defmodule IEx.HelpersTest do
                "No documentation for Mix.Task.stop was found\n"
 
       assert capture_io(fn -> b(Mix.Task.run()) end) =~
-               "* @callback run(command_line_args :: [binary()]) :: any()\n\nA task needs to implement `run`"
+               "@callback run(command_line_args :: [binary()]) :: any()\n\nA task needs to implement `run`"
 
       assert capture_io(fn -> b(NoMix.run()) end) == "Could not load module NoMix, got: nofile\n"
 
       assert capture_io(fn -> b(Exception.message() / 1) end) ==
-               "* @callback message(t()) :: String.t()\n\n\n"
+               "@callback message(t()) :: String.t()\n\n"
     end
   end
 
@@ -511,7 +589,9 @@ defmodule IEx.HelpersTest do
       assert "@type t() :: " <> _ = capture_io(fn -> t(Enum.t()) end)
       assert capture_io(fn -> t(Enum.t()) end) == capture_io(fn -> t(Enum.t() / 0) end)
 
-      assert "@opaque t(value)\n@type t() :: t(term())\n" = capture_io(fn -> t(MapSet.t()) end)
+      assert "@opaque t(value)\n\n@type t() :: t(term())\n\n" =
+               capture_io(fn -> t(MapSet.t()) end)
+
       assert capture_io(fn -> t(URI.t()) end) == capture_io(fn -> t(URI.t() / 0) end)
     end
 
@@ -529,42 +609,19 @@ defmodule IEx.HelpersTest do
         assert c(filename, ".") == [TypeSample]
 
         assert capture_io(fn -> t(TypeSample.id_with_desc() / 0) end) == """
-               An id with description.
                @type id_with_desc() :: {number(), String.t()}
+
+               An id with description.
                """
 
         assert capture_io(fn -> t(TypeSample.id_with_desc()) end) == """
-               An id with description.
                @type id_with_desc() :: {number(), String.t()}
+
+               An id with description.
                """
       end)
     after
       cleanup_modules([TypeSample])
-    end
-  end
-
-  describe "s" do
-    test "prints when there is no spec information" do
-      assert capture_io(fn -> s(IEx.Remsh) end) == "No specification for IEx.Remsh was found\n"
-    end
-
-    test "prints all specs in module" do
-      # Test that it shows at least two specs
-      assert Enum.count(capture_io(fn -> s(Process) end) |> String.split("\n"), fn line ->
-               String.starts_with?(line, "@spec")
-             end) >= 2
-    end
-
-    test "prints specs" do
-      assert Enum.count(capture_io(fn -> s(Process.flag()) end) |> String.split("\n"), fn line ->
-               String.starts_with?(line, "@spec")
-             end) >= 2
-
-      assert capture_io(fn -> s(Process.register() / 2) end) ==
-               "@spec register(pid() | port(), atom()) :: true\n"
-
-      assert capture_io(fn -> s(struct) end) ==
-               "@spec struct(module() | struct(), Enum.t()) :: struct()\n"
     end
   end
 
@@ -923,6 +980,29 @@ defmodule IEx.HelpersTest do
                This atom is returned by IEx when a function that should not print its
                return value on screen is executed.\
              """
+    end
+
+    defmodule MyIExInfoModule do
+      defstruct []
+
+      defimpl IEx.Info do
+        def info(_), do: [{"A", "it's A"}, {:b, "it's :b"}, {'c', "it's 'c'"}]
+      end
+    end
+
+    test "uses the IEx.Info protocol" do
+      assert capture_io(fn -> i(%MyIExInfoModule{}) end) =~ """
+             Term
+               %IEx.HelpersTest.MyIExInfoModule{}
+             A
+               it's A
+             b
+               it's :b
+             c
+               it's 'c'
+             """
+    after
+      cleanup_modules([MyIExInfoModule])
     end
   end
 

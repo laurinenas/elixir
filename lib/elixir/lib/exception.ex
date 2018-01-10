@@ -37,12 +37,19 @@ defmodule Exception do
   @callback message(t) :: String.t()
 
   @doc """
+  Called from `Exception.blame/3` to augment the exception struct.
+
+  Can be used to collect additional information about the exception
+  or do some additional expensive computation.
+  """
+  @callback blame(t, stacktrace) :: {t, stacktrace}
+  @optional_callbacks [blame: 2]
+
+  @doc """
   Returns `true` if the given `term` is an exception.
   """
   def exception?(term)
-
   def exception?(%_{__exception__: true}), do: true
-
   def exception?(_), do: false
 
   @doc """
@@ -165,46 +172,27 @@ defmodule Exception do
 
   This operation is potentially expensive, as it reads data
   from the filesystem, parse beam files, evaluates code and
-  so on. Currently the following exceptions may be annotated:
+  so on.
 
-    * `FunctionClauseError` - annotated with the arguments
-      used on the call and available clauses
-
+  If the exception module implements the optional `c:blame/2`
+  callbak, it will be invoked to perform the computation.
   """
   @spec blame(:error, any, stacktrace) :: {t, stacktrace}
   @spec blame(non_error_kind, payload, stacktrace) :: {payload, stacktrace} when payload: var
   def blame(kind, error, stacktrace)
 
   def blame(:error, error, stacktrace) do
-    case normalize(:error, error, stacktrace) do
-      %{__struct__: FunctionClauseError} = struct ->
-        blame_function_clause_error(struct, stacktrace)
+    %module{} = struct = normalize(:error, error, stacktrace)
 
-      _ ->
-        {error, stacktrace}
+    if Code.ensure_loaded?(module) and function_exported?(module, :blame, 2) do
+      module.blame(struct, stacktrace)
+    else
+      {struct, stacktrace}
     end
   end
 
   def blame(_kind, reason, stacktrace) do
     {reason, stacktrace}
-  end
-
-  defp blame_function_clause_error(
-         %{module: module, function: function, arity: arity} = exception,
-         [{module, function, args, meta} | rest]
-       )
-       when length(args) == arity do
-    exception =
-      case blame_mfa(module, function, args) do
-        {:ok, kind, clauses} -> %{exception | args: args, kind: kind, clauses: clauses}
-        :error -> %{exception | args: args}
-      end
-
-    {exception, [{module, function, arity, meta} | rest]}
-  end
-
-  defp blame_function_clause_error(exception, stacktrace) do
-    {exception, stacktrace}
   end
 
   @doc """
@@ -234,7 +222,7 @@ defmodule Exception do
   end
 
   defp blame_mfa(module, function, arity, call_args) do
-    with path when is_list(path) <- :code.which(module),
+    with [_ | _] = path <- :code.which(module),
          {:ok, {_, [debug_info: debug_info]}} <- :beam_lib.chunks(path, [:debug_info]),
          {:debug_info_v1, backend, data} <- debug_info,
          {:ok, %{definitions: defs}} <- backend.debug_info(:elixir_v1, module, data, []),
@@ -313,8 +301,17 @@ defmodule Exception do
 
   defp rewrite_guard(guard) do
     Macro.prewalk(guard, fn
-      {:., _, [:erlang, call]} -> rewrite_guard_call(call)
-      other -> other
+      {{:., _, [:erlang, :element]}, _, [{{:., _, [:erlang, :+]}, _, [int, 1]}, arg]} ->
+        {:elem, [], [arg, int]}
+
+      {{:., _, [:erlang, :element]}, _, [int, arg]} when is_integer(int) ->
+        {:elem, [], [arg, int - 1]}
+
+      {:., _, [:erlang, call]} ->
+        rewrite_guard_call(call)
+
+      other ->
+        other
     end)
   end
 
@@ -481,6 +478,14 @@ defmodule Exception do
 
   defp format_sup_data({:invalid_period, period}) do
     "invalid max_seconds (period): " <> inspect(period)
+  end
+
+  defp format_sup_data({:invalid_max_children, max_children}) do
+    "invalid max_children: " <> inspect(max_children)
+  end
+
+  defp format_sup_data({:invalid_extra_arguments, extra}) do
+    "invalid extra_arguments: " <> inspect(extra)
   end
 
   defp format_sup_data(other), do: "got: #{inspect(other)}"
@@ -945,6 +950,22 @@ defmodule FunctionClauseError do
     end
   end
 
+  def blame(%{module: module, function: function, arity: arity} = exception, stacktrace) do
+    case stacktrace do
+      [{^module, ^function, args, meta} | rest] when length(args) == arity ->
+        exception =
+          case Exception.blame_mfa(module, function, args) do
+            {:ok, kind, clauses} -> %{exception | args: args, kind: kind, clauses: clauses}
+            :error -> %{exception | args: args}
+          end
+
+        {exception, [{module, function, arity, meta} | rest]}
+
+      stacktrace ->
+        {exception, stacktrace}
+    end
+  end
+
   defp blame_match(%{match?: true, node: node}, _), do: Macro.to_string(node)
   defp blame_match(%{match?: false, node: node}, _), do: "-" <> Macro.to_string(node) <> "-"
   defp blame_match(_, string), do: string
@@ -954,24 +975,18 @@ defmodule FunctionClauseError do
     ""
   end
 
-  def blame(
-        %{
-          module: module,
-          function: function,
-          arity: arity,
-          kind: kind,
-          args: args,
-          clauses: clauses
-        },
-        inspect_fun,
-        ast_fun
-      ) do
+  def blame(exception, inspect_fun, ast_fun) do
+    %{module: module, function: function, arity: arity, kind: kind, args: args, clauses: clauses} =
+      exception
+
     mfa = Exception.format_mfa(module, function, arity)
 
     formatted_args =
       args
       |> Enum.with_index(1)
-      |> Enum.map(fn {arg, i} -> "\n    # #{i}\n    #{inspect_fun.(arg)}\n" end)
+      |> Enum.map(fn {arg, i} ->
+        ["\n    # ", Integer.to_string(i), "\n    ", pad(inspect_fun.(arg)), "\n"]
+      end)
 
     formatted_clauses =
       if clauses do
@@ -985,13 +1000,20 @@ defmodule FunctionClauseError do
           |> Enum.take(10)
           |> Enum.map(format_clause_fun)
 
-        "\nAttempted function clauses (showing #{length(top_10)} out of #{length(clauses)}):" <>
-          "\n\n#{top_10}"
+        [
+          "\nAttempted function clauses (showing #{length(top_10)} out of #{length(clauses)}):",
+          "\n\n",
+          top_10
+        ]
       else
         ""
       end
 
     "\n\nThe following arguments were given to #{mfa}:\n#{formatted_args}#{formatted_clauses}"
+  end
+
+  defp pad(string) do
+    String.replace(string, "\n", "\n    ")
   end
 end
 

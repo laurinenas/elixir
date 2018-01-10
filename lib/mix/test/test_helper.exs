@@ -8,6 +8,12 @@ unless {1, 7, 4} <= Mix.SCM.Git.git_version() do
   ExUnit.configure(exclude: :git_sparse)
 end
 
+# Clear proxy variables that may affect tests
+System.delete_env("http_proxy")
+System.delete_env("https_proxy")
+System.delete_env("HTTP_PROXY")
+System.delete_env("HTTPS_PROXY")
+
 defmodule MixTest.Case do
   use ExUnit.CaseTemplate
 
@@ -55,7 +61,7 @@ defmodule MixTest.Case do
   end
 
   def fixture_path(extension) do
-    Path.join(fixture_path(), extension)
+    Path.join(fixture_path(), extension |> to_string() |> String.replace(":", ""))
   end
 
   def tmp_path do
@@ -63,7 +69,7 @@ defmodule MixTest.Case do
   end
 
   def tmp_path(extension) do
-    Path.join(tmp_path(), to_string(extension))
+    Path.join(tmp_path(), extension |> to_string() |> String.replace(":", ""))
   end
 
   def purge(modules) do
@@ -108,7 +114,7 @@ defmodule MixTest.Case do
       :code.set_path(get_path)
 
       for {mod, file} <- :code.all_loaded() -- previous,
-          file == :in_memory or (is_list(file) and :lists.prefix(flag, file)) do
+          file == [] or (is_list(file) and :lists.prefix(flag, file)) do
         purge([mod])
       end
     end
@@ -282,6 +288,28 @@ unless File.dir?(target) do
     def project do
       [
         app: :deps_on_git_repo,
+        version: "0.1.0",
+      ]
+    end
+  end
+  """)
+
+  File.cd!(target, fn ->
+    System.cmd("git", ~w[init])
+    System.cmd("git", ~w[config user.email "mix@example.com"])
+    System.cmd("git", ~w[config user.name "mix-repo"])
+    System.cmd("git", ~w[add .])
+    System.cmd("git", ~w[commit -m without-dep])
+  end)
+
+  File.write!(Path.join(target, "mix.exs"), """
+  ## Auto-generated fixture
+  defmodule DepsOnGitRepo.MixProject do
+    use Mix.Project
+
+    def project do
+      [
+        app: :deps_on_git_repo,
         version: "0.2.0",
         deps: [
           {:git_repo, git: MixTest.Case.fixture_path("git_repo")}
@@ -297,11 +325,8 @@ unless File.dir?(target) do
   """)
 
   File.cd!(target, fn ->
-    System.cmd("git", ~w[init])
-    System.cmd("git", ~w[config user.email "mix@example.com"])
-    System.cmd("git", ~w[config user.name "mix-repo"])
     System.cmd("git", ~w[add .])
-    System.cmd("git", ~w[commit -m "ok"])
+    System.cmd("git", ~w[commit -m with-dep])
   end)
 end
 

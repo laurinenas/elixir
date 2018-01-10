@@ -225,8 +225,8 @@ defmodule ExUnit.DocTest do
     |> filter_by_opts(opts)
     |> Stream.with_index()
     |> Enum.map(fn {test, acc} ->
-         compile_test(test, module, do_import, acc + 1)
-       end)
+      compile_test(test, module, do_import, acc + 1)
+    end)
   end
 
   defp filter_by_opts(tests, opts) do
@@ -426,8 +426,9 @@ defmodule ExUnit.DocTest do
     unless all_docs do
       raise Error,
         module: module,
-        message: "could not retrieve the documentation for module #{inspect(module)}. " <>
-          "The module was not compiled with documentation or its BEAM file cannot be accessed"
+        message:
+          "could not retrieve the documentation for module #{inspect(module)}. " <>
+            "The module was not compiled with documentation or its BEAM file cannot be accessed"
     end
 
     moduledocs = extract_from_moduledoc(all_docs[:moduledoc], module)

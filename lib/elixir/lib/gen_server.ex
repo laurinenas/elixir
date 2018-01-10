@@ -386,7 +386,8 @@ defmodule GenServer do
   `{:stop, reason, reply, new_state}` except a reply is not sent.
 
   If this callback is not implemented, the default implementation by
-  `use GenServer` will return `{:stop, {:bad_call, request}, state}`.
+  `use GenServer` will fail with a `RuntimeError` exception with a message:
+  attempted to call `GenServer` but no `handle_call/3` clause was provided.
   """
   @callback handle_call(request :: term, from, state :: term) ::
               {:reply, reply, new_state}
@@ -418,7 +419,8 @@ defmodule GenServer do
   reason `reason`.
 
   If this callback is not implemented, the default implementation by
-  `use GenServer` will return `{:stop, {:bad_cast, request}, state}`.
+  `use GenServer` will fail with a `RuntimeError` exception with a message:
+  attempted to call `GenServer` but no `handle_cast/2` clause was provided.
   """
   @callback handle_cast(request :: term, state :: term) ::
               {:noreply, new_state}
@@ -581,10 +583,8 @@ defmodule GenServer do
 
       defoverridable child_spec: 1
 
-      @doc false
-      def init(args) do
-        {:ok, args}
-      end
+      # TODO: Remove this on Elixir v2.0
+      @before_compile GenServer
 
       @doc false
       def handle_call(msg, _from, state) do
@@ -646,6 +646,35 @@ defmodule GenServer do
       end
 
       defoverridable GenServer
+    end
+  end
+
+  defmacro __before_compile__(env) do
+    unless Module.defines?(env.module, {:init, 1}) do
+      message = """
+      function init/1 required by behaviour GenServer is not implemented \
+      (in module #{inspect(env.module)}).
+
+      We will inject a default implementation for now:
+
+          def init(args) do
+            {:ok, args}
+          end
+
+      But you want to define your own implementation that converts the \
+      arguments given to GenServer.start_link/3 to the server state
+      """
+
+      :elixir_errors.warn(env.line, env.file, message)
+
+      quote do
+        @doc false
+        def init(args) do
+          {:ok, args}
+        end
+
+        defoverridable init: 1
+      end
     end
   end
 
@@ -746,7 +775,21 @@ defmodule GenServer do
   """
   @spec stop(server, reason :: term, timeout) :: :ok
   def stop(server, reason \\ :normal, timeout \\ :infinity) do
-    :gen.stop(server, reason, timeout)
+    case whereis(server) do
+      nil ->
+        exit({:noproc, {__MODULE__, :stop, [server, reason, timeout]}})
+
+      pid when pid == self() ->
+        exit({:calling_self, {__MODULE__, :stop, [server, reason, timeout]}})
+
+      pid ->
+        try do
+          :proc_lib.stop(pid, reason, timeout)
+        catch
+          :exit, err ->
+            exit({err, {__MODULE__, :stop, [server, reason, timeout]}})
+        end
+    end
   end
 
   @doc """

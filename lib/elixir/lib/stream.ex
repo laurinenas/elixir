@@ -121,11 +121,13 @@ defmodule Stream do
 
   ## Transformers
 
-  # Deprecate on v1.7
+  # TODO: Remove by 2.0
+  # (hard-deprecated in elixir_dispatch)
   @doc false
   def chunk(enum, n), do: chunk(enum, n, n, nil)
 
-  # Deprecate on v1.7
+  # TODO: Remove by 2.0
+  # (hard-deprecated in elixir_dispatch)
   @doc false
   def chunk(enum, n, step, leftover \\ nil)
       when is_integer(n) and n > 0 and is_integer(step) and step > 0 do
@@ -231,16 +233,37 @@ defmodule Stream do
   def chunk_while(enum, acc, chunk_fun, after_fun) do
     lazy(
       enum,
-      acc,
-      fn f1 -> R.chunk_while(chunk_fun, f1) end,
-      &after_chunk_while(&1, &2, after_fun)
+      [acc | after_fun],
+      fn f1 -> chunk_while_fun(chunk_fun, f1) end,
+      &after_chunk_while/2
     )
   end
 
-  defp after_chunk_while(acc(h, acc, t), f1, after_fun) do
+  defp chunk_while_fun(callback, fun) do
+    fn entry, acc(head, [acc | after_fun], tail) ->
+      case callback.(entry, acc) do
+        {:cont, emit, acc} ->
+          # If we emit an item and then we have to halt,
+          # we need to disable the after_fun callback to
+          # avoid emitting even more items.
+          case next(fun, emit, [head | tail]) do
+            {:halt, [head | tail]} -> {:halt, acc(head, [acc | &{:cont, &1}], tail)}
+            {command, [head | tail]} -> {command, acc(head, [acc | after_fun], tail)}
+          end
+
+        {:cont, acc} ->
+          skip(acc(head, [acc | after_fun], tail))
+
+        {:halt, acc} ->
+          {:halt, acc(head, [acc | after_fun], tail)}
+      end
+    end
+  end
+
+  defp after_chunk_while(acc(h, [acc | after_fun], t), f1) do
     case after_fun.(acc) do
-      {:cont, emit, acc} -> next_with_acc(f1, emit, h, acc, t)
-      {:cont, acc} -> {:cont, acc(h, acc, t)}
+      {:cont, emit, acc} -> next_with_acc(f1, emit, h, [acc | after_fun], t)
+      {:cont, acc} -> {:cont, acc(h, [acc | after_fun], t)}
     end
   end
 
@@ -249,7 +272,7 @@ defmodule Stream do
 
   This function only ever needs to store the last emitted element.
 
-  Elements are compared using `===`.
+  Elements are compared using `===/2`.
 
   ## Examples
 
@@ -1483,6 +1506,12 @@ end
 defimpl Enumerable, for: Stream do
   @compile :inline_list_funs
 
+  def count(_lazy), do: {:error, __MODULE__}
+
+  def member?(_lazy, _value), do: {:error, __MODULE__}
+
+  def slice(_lazy), do: {:error, __MODULE__}
+
   def reduce(lazy, acc, fun) do
     do_reduce(lazy, acc, fn x, [acc] ->
       {reason, acc} = fun.(x, acc)
@@ -1490,16 +1519,8 @@ defimpl Enumerable, for: Stream do
     end)
   end
 
-  def count(_lazy) do
-    {:error, __MODULE__}
-  end
-
-  def member?(_lazy, _value) do
-    {:error, __MODULE__}
-  end
-
   defp do_reduce(%Stream{enum: enum, funs: funs, accs: accs, done: done}, acc, fun) do
-    composed = :lists.foldl(fn fun, acc -> fun.(acc) end, fun, funs)
+    composed = :lists.foldl(fn entry_fun, acc -> entry_fun.(acc) end, fun, funs)
     reduce = &Enumerable.reduce(enum, &1, composed)
     do_each(reduce, done && {done, fun}, :lists.reverse(accs), acc)
   end

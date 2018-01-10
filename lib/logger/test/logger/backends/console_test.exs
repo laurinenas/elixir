@@ -25,10 +25,8 @@ defmodule Logger.Backends.ConsoleTest do
     try do
       Process.unregister(:user)
 
-      assert :gen_event.add_handler(Logger, Logger.Backends.Console, :console) == {
-               :error,
-               :ignore
-             }
+      assert :gen_event.add_handler(Logger, Logger.Backends.Console, :console) ==
+               {:error, :ignore}
     after
       Process.register(user, :user)
     end
@@ -101,12 +99,8 @@ defmodule Logger.Backends.ConsoleTest do
   end
 
   test "metadata defaults" do
-    Logger.configure_backend(:console, format: "$metadata", metadata: [
-      :file,
-      :line,
-      :module,
-      :function
-    ])
+    metadata = [:file, :line, :module, :function]
+    Logger.configure_backend(:console, format: "$metadata", metadata: metadata)
 
     %{module: mod, function: {name, arity}, file: file, line: line} = __ENV__
 

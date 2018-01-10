@@ -56,7 +56,7 @@ defmodule Access do
   Since `Access` is a behaviour, it can be implemented for key-value
   data structures. The implementation should be added to the
   module that defines the struct being accessed. `Access` requires the
-  key comparison to be implemented using the `===` operator.
+  key comparison to be implemented using the `===/2` operator.
 
   ## Static lookups
 
@@ -360,12 +360,11 @@ defmodule Access do
     module.get_and_update(container, key, fun)
   rescue
     exception in UndefinedFunctionError ->
-      raise_undefined_behaviour(exception, module, {
-        ^module,
-        :get_and_update,
-        [^container, ^key, ^fun],
-        _
-      })
+      raise_undefined_behaviour(
+        exception,
+        module,
+        {^module, :get_and_update, [^container, ^key, ^fun], _}
+      )
   end
 
   def get_and_update(map, key, fun) when is_map(map) do

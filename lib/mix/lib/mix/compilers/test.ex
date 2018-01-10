@@ -11,8 +11,8 @@ defmodule Mix.Compilers.Test do
     runtime_references: [],
     external: []
 
-  @stale_manifest ".compile.test_stale"
-  @manifest_vsn :v1
+  @stale_manifest "compile.test_stale"
+  @manifest_vsn 1
 
   @doc """
   Requires and runs test files.
@@ -183,23 +183,15 @@ defmodule Mix.Compilers.Test do
   end
 
   defp write_manifest([]) do
-    manifest()
-    |> File.rm()
-
+    File.rm(manifest())
     :ok
   end
 
   defp write_manifest(sources) do
     manifest = manifest()
+    File.mkdir_p!(Path.dirname(manifest))
 
-    manifest
-    |> Path.dirname()
-    |> File.mkdir_p!()
-
-    manifest_data =
-      [@manifest_vsn | sources]
-      |> :erlang.term_to_binary([:compressed])
-
+    manifest_data = :erlang.term_to_binary([@manifest_vsn | sources], [:compressed])
     File.write!(manifest, manifest_data)
   end
 
@@ -263,7 +255,9 @@ defmodule Mix.Compilers.Test do
   ## ParallelRequire callback
 
   defp each_module(pid, cwd, source, module, _binary) do
-    {compile_references, runtime_references} = Kernel.LexicalTracker.remote_references(module)
+    {compile_references, struct_references, runtime_references} =
+      Kernel.LexicalTracker.remote_references(module)
+
     external = get_external_resources(module, cwd)
     source = Path.relative_to(source, cwd)
 
@@ -277,7 +271,7 @@ defmodule Mix.Compilers.Test do
       new_source =
         source(
           source: source,
-          compile_references: compile_references,
+          compile_references: compile_references ++ struct_references,
           runtime_references: runtime_references,
           external: external
         )

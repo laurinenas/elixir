@@ -5,7 +5,7 @@ defmodule Mix.Tasks.App.StartTest do
 
   defmodule AppStartSample do
     def project do
-      [app: :app_start_sample, version: "0.1.0", start_permanent: true]
+      [app: :app_start_sample, version: "0.1.0"]
     end
 
     def application do
@@ -35,12 +35,18 @@ defmodule Mix.Tasks.App.StartTest do
       assert File.regular?("_build/dev/lib/app_start_sample/ebin/Elixir.A.beam")
       assert File.regular?("_build/dev/lib/app_start_sample/ebin/app_start_sample.app")
 
+      assert :code.is_loaded(A)
       refute List.keyfind(Application.started_applications(), :app_start_sample, 0)
       assert List.keyfind(Application.started_applications(), :logger, 0)
+      purge([A])
 
       Mix.Tasks.App.Start.run([])
+      refute :code.is_loaded(A)
       assert List.keyfind(Application.started_applications(), :app_start_sample, 0)
       assert List.keyfind(Application.started_applications(), :logger, 0)
+
+      Mix.Tasks.App.Start.run(["--preload-modules"])
+      assert :code.is_loaded(A)
     end
   end
 
@@ -60,17 +66,13 @@ defmodule Mix.Tasks.App.StartTest do
       Mix.Tasks.Compile.run([])
       Mix.Tasks.App.Start.run([])
 
-      assert_received {
-        :mix_shell,
-        :error,
-        ["You have configured application :app_unknown_sample" <> _]
-      }
+      assert_received {:mix_shell, :error, [
+                        "You have configured application :app_unknown_sample" <> _
+                      ]}
 
-      refute_received {
-        :mix_shell,
-        :error,
-        ["You have configured application :app_loaded_sample" <> _]
-      }
+      refute_received {:mix_shell, :error, [
+                        "You have configured application :app_loaded_sample" <> _
+                      ]}
     end
   end
 
@@ -157,11 +159,8 @@ defmodule Mix.Tasks.App.StartTest do
     Mix.Project.push(ReturnSample)
 
     in_tmp context.test, fn ->
-      Process.put(:application_definition, mod: {
-        ReturnApp,
-        {:error, {:badarg, [{ReturnApp, :start, 2, []}]}}
-      })
-
+      mod = {ReturnApp, {:error, {:badarg, [{ReturnApp, :start, 2, []}]}}}
+      Process.put(:application_definition, mod: mod)
       Mix.Tasks.Compile.run([])
 
       message =

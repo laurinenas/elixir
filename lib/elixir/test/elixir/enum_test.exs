@@ -47,19 +47,6 @@ defmodule EnumTest do
     assert Enum.at([2, 4, 6], -4) == nil
   end
 
-  test "chunk/2" do
-    assert Enum.chunk([1, 2, 3, 4, 5], 2) == [[1, 2], [3, 4]]
-  end
-
-  test "chunk/4" do
-    assert Enum.chunk([1, 2, 3, 4, 5], 2, 2, [6]) == [[1, 2], [3, 4], [5, 6]]
-    assert Enum.chunk([1, 2, 3, 4, 5, 6], 3, 2) == [[1, 2, 3], [3, 4, 5]]
-    assert Enum.chunk([1, 2, 3, 4, 5, 6], 2, 3) == [[1, 2], [4, 5]]
-    assert Enum.chunk([1, 2, 3, 4, 5, 6], 3, 2, []) == [[1, 2, 3], [3, 4, 5], [5, 6]]
-    assert Enum.chunk([1, 2, 3, 4, 5, 6], 3, 3, []) == [[1, 2, 3], [4, 5, 6]]
-    assert Enum.chunk([1, 2, 3, 4, 5], 4, 4, 6..10) == [[1, 2, 3, 4], [5, 6, 7, 8]]
-  end
-
   test "chunk_every/2" do
     assert Enum.chunk_every([1, 2, 3, 4, 5], 2) == [[1, 2], [3, 4], [5]]
   end
@@ -71,6 +58,11 @@ defmodule EnumTest do
     assert Enum.chunk_every([1, 2, 3, 4, 5, 6], 3, 2, []) == [[1, 2, 3], [3, 4, 5], [5, 6]]
     assert Enum.chunk_every([1, 2, 3, 4, 5, 6], 3, 3, []) == [[1, 2, 3], [4, 5, 6]]
     assert Enum.chunk_every([1, 2, 3, 4, 5], 4, 4, 6..10) == [[1, 2, 3, 4], [5, 6, 7, 8]]
+    assert Enum.chunk_every([1, 2, 3, 4, 5], 2, 3, []) == [[1, 2], [4, 5]]
+    assert Enum.chunk_every([1, 2, 3, 4, 5, 6], 2, 3, []) == [[1, 2], [4, 5]]
+    assert Enum.chunk_every([1, 2, 3, 4, 5, 6, 7], 2, 3, []) == [[1, 2], [4, 5], [7]]
+    assert Enum.chunk_every([1, 2, 3, 4, 5, 6, 7], 2, 3, [8]) == [[1, 2], [4, 5], [7, 8]]
+    assert Enum.chunk_every([1, 2, 3, 4, 5, 6, 7], 2, 4, []) == [[1, 2], [5, 6]]
   end
 
   test "chunk_by/2" do
@@ -881,6 +873,7 @@ defmodule EnumTest do
 end
 
 defmodule EnumTest.Range do
+  # Ranges use custom callbacks for protocols in many operations.
   use ExUnit.Case, async: true
 
   test "all?/2" do
@@ -903,18 +896,6 @@ defmodule EnumTest.Range do
     assert Enum.at(2..6, 6, :none) == :none
     assert Enum.at(2..6, -2) == 5
     assert Enum.at(2..6, -8) == nil
-  end
-
-  test "chunk/2" do
-    assert Enum.chunk(1..5, 2) == [[1, 2], [3, 4]]
-  end
-
-  test "chunk/4" do
-    assert Enum.chunk(1..5, 2, 2, [6]) == [[1, 2], [3, 4], [5, 6]]
-    assert Enum.chunk(1..6, 3, 2) == [[1, 2, 3], [3, 4, 5]]
-    assert Enum.chunk(1..6, 2, 3) == [[1, 2], [4, 5]]
-    assert Enum.chunk(1..6, 3, 2, []) == [[1, 2, 3], [3, 4, 5], [5, 6]]
-    assert Enum.chunk(1..5, 4, 4, 6..10) == [[1, 2, 3, 4], [5, 6, 7, 8]]
   end
 
   test "chunk_every/2" do
@@ -1217,7 +1198,8 @@ defmodule EnumTest.Range do
     :rand.seed(:exsplus, seed1)
     assert Enum.random(1..2) == 1
     assert Enum.random(1..3) == 2
-    assert Enum.random(3..1) == 3
+    assert Enum.random(3..1) == 1
+
     :rand.seed(:exsplus, seed2)
     assert Enum.random(1..2) == 1
     assert Enum.random(1..3) == 3
@@ -1522,9 +1504,22 @@ defmodule EnumTest.Range do
 end
 
 defmodule EnumTest.Map do
-  # Some cases are inlined for ranges which means we need
-  # to verify them using maps or mapsets.
+  # Maps use different protocols path than lists and ranges in the cases below.
   use ExUnit.Case, async: true
+
+  test "random/1" do
+    map = %{a: 1, b: 2, c: 3}
+    seed1 = {1406, 407_414, 139_258}
+    seed2 = {1406, 421_106, 567_597}
+    :rand.seed(:exsplus, seed1)
+    assert Enum.random(map) == {:c, 3}
+    assert Enum.random(map) == {:b, 2}
+    assert Enum.random(map) == {:c, 3}
+
+    :rand.seed(:exsplus, seed2)
+    assert Enum.random(map) == {:a, 1}
+    assert Enum.random(map) == {:a, 1}
+  end
 
   test "take_random/2" do
     # corner cases, independent of the seed

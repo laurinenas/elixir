@@ -11,7 +11,7 @@ defmodule Registry do
   Each entry in the registry is associated to the process that has
   registered the key. If the process crashes, the keys associated to that
   process are automatically removed. All key comparisons in the registry
-  are done using the match operation (`===`).
+  are done using the match operation (`===/2`).
 
   The registry can be used for different purposes, such as name lookups (using
   the `:via` option), storing properties, custom dispatching rules, or a pubsub
@@ -1107,11 +1107,10 @@ defmodule Registry.Partition do
     # If we have only one partition, we do an optimization which
     # is to write the table information alongside the registry info.
     if partitions == 1 do
-      entries =
-        [
-          {@key_info, {kind, partitions, key_ets}},
-          {@all_info, {kind, partitions, key_ets, {self(), pid_ets}, listeners}}
-        ]
+      entries = [
+        {@key_info, {kind, partitions, key_ets}},
+        {@all_info, {kind, partitions, key_ets, {self(), pid_ets}, listeners}}
+      ]
 
       true = :ets.insert(registry, entries)
     else

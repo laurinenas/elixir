@@ -267,6 +267,10 @@ defimpl Enumerable, for: HashDict do
     module = HashDict
     {:ok, module.size(dict)}
   end
+
+  def slice(_dict) do
+    {:error, __MODULE__}
+  end
 end
 
 defimpl Collectable, for: HashDict do
@@ -274,12 +278,11 @@ defimpl Collectable, for: HashDict do
     # Avoid warnings about HashDict being deprecated.
     module = HashDict
 
-    collector_fun =
-      fn
-        dict, {:cont, {key, value}} -> module.put(dict, key, value)
-        dict, :done -> dict
-        _, :halt -> :ok
-      end
+    collector_fun = fn
+      dict, {:cont, {key, value}} -> module.put(dict, key, value)
+      dict, :done -> dict
+      _, :halt -> :ok
+    end
 
     {original, collector_fun}
   end

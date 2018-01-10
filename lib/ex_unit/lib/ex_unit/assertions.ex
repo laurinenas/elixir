@@ -98,7 +98,7 @@ defmodule ExUnit.Assertions do
   defmacro assert({:=, _, [left, right]} = assertion) do
     code = escape_quoted(:assert, assertion)
 
-    left = Macro.expand(left, __CALLER__)
+    left = expand_pattern(left, __CALLER__)
     vars = collect_vars_from_pattern(left)
     pins = collect_pins_from_pattern(left, __CALLER__.vars)
 
@@ -212,8 +212,9 @@ defmodule ExUnit.Assertions do
       refute unquote(match?),
         right: right,
         expr: unquote(code),
-        message: "match (match?) succeeded, but should have failed" <>
-          ExUnit.Assertions.__pins__(unquote(pins))
+        message:
+          "match (match?) succeeded, but should have failed" <>
+            ExUnit.Assertions.__pins__(unquote(pins))
     end
   end
 
@@ -398,9 +399,10 @@ defmodule ExUnit.Assertions do
     binary = Macro.to_string(pattern)
 
     # Expand before extracting metadata
-    pattern = Macro.expand(pattern, caller)
-    vars = collect_vars_from_pattern(pattern)
-    pins = collect_pins_from_pattern(pattern, caller.vars)
+    caller = Macro.Env.to_match(caller)
+    expanded = expand_pattern(pattern, caller)
+    vars = collect_vars_from_pattern(expanded)
+    pins = collect_pins_from_pattern(expanded, caller.vars)
 
     pattern =
       case pattern do
@@ -560,6 +562,16 @@ defmodule ExUnit.Assertions do
     |> elem(1)
   end
 
+  defp expand_pattern(expr, caller) do
+    Macro.prewalk(expr, fn
+      {var, _, context} = node when is_atom(var) and is_atom(context) ->
+        node
+
+      other ->
+        Macro.expand(other, caller)
+    end)
+  end
+
   defp suppress_warning({name, meta, [expr, [do: clauses]]}) do
     clauses =
       Enum.map(clauses, fn {:->, meta, args} ->
@@ -658,11 +670,14 @@ defmodule ExUnit.Assertions do
   @doc """
   Asserts that `value1` and `value2` differ by no more than `delta`.
 
+  This difference is inclusive, so the test will pass if the difference
+  and the `delta` are equal.
 
   ## Examples
 
       assert_in_delta 1.1, 1.5, 0.2
-      assert_in_delta 10, 15, 4
+      assert_in_delta 10, 15, 2
+      assert_in_delta 10, 15, 5
 
   """
   def assert_in_delta(value1, value2, delta, message \\ nil)
@@ -677,9 +692,9 @@ defmodule ExUnit.Assertions do
     message =
       message ||
         "Expected the difference between #{inspect(value1)} and " <>
-          "#{inspect(value2)} (#{inspect(diff)}) to be less than #{inspect(delta)}"
+          "#{inspect(value2)} (#{inspect(diff)}) to be less than or equal to #{inspect(delta)}"
 
-    assert diff < delta, message
+    assert diff <= delta, message
   end
 
   @doc """
@@ -827,6 +842,9 @@ defmodule ExUnit.Assertions do
 
   @doc """
   Asserts `value1` and `value2` are not within `delta`.
+
+  This difference is exclusive, so the test will fail if the difference
+  and the delta are equal.
 
   If you supply `message`, information about the values will
   automatically be appended to it.

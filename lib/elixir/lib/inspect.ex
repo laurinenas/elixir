@@ -102,7 +102,7 @@ defimpl Inspect, for: BitString do
     left = color("<<", :binary, opts)
     right = color(">>", :binary, opts)
     inner = each_bit(bitstring, opts.limit, opts)
-    concat(concat(left, nest(inner, :cursor)), right)
+    group(concat(concat(left, nest(inner, 2)), right))
   end
 
   defp each_bit(_, 0, _) do
@@ -193,7 +193,7 @@ defimpl Inspect, for: List do
   @doc false
   def keyword({key, value}, opts) do
     key = color(Identifier.inspect_as_key(key), :atom, opts)
-    concat(key, to_doc(value, opts))
+    concat(key, concat(" ", to_doc(value, opts)))
   end
 
   @doc false
@@ -213,7 +213,8 @@ defimpl Inspect, for: Tuple do
     open = color("{", :tuple, opts)
     sep = color(",", :tuple, opts)
     close = color("}", :tuple, opts)
-    container_doc(open, Tuple.to_list(tuple), close, opts, &to_doc/2, separator: sep)
+    container_opts = [separator: sep, break: :flex]
+    container_doc(open, Tuple.to_list(tuple), close, opts, &to_doc/2, container_opts)
   end
 end
 
@@ -260,6 +261,10 @@ defimpl Inspect, for: Integer do
   end
 
   defp prepend_prefix(value, :decimal), do: value
+
+  defp prepend_prefix(<<?-, value::binary>>, base) do
+    "-" <> prepend_prefix(value, base)
+  end
 
   defp prepend_prefix(value, base) do
     prefix =

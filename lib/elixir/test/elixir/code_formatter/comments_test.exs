@@ -18,6 +18,11 @@ defmodule Code.Formatter.CommentsTest do
       assert_same "# ## oops"
     end
 
+    test "recognizes hashbangs" do
+      assert_format "#!/usr/bin/env elixir", "#! /usr/bin/env elixir"
+      assert_same "#!"
+    end
+
     test "before and after expressions" do
       assert_same """
       # before comment
@@ -241,6 +246,141 @@ defmodule Code.Formatter.CommentsTest do
                world
                # comment
              )
+      """
+    end
+  end
+
+  describe "calls" do
+    test "local with parens inside before and after" do
+      assert_same ~S"""
+      call(
+        # before
+        hello,
+        # middle
+        world
+        # after
+      )
+      """
+
+      assert_same ~S"""
+      call(
+        # command
+      )
+      """
+    end
+
+    test "remote with parens inside before and after" do
+      assert_same ~S"""
+      Remote.call(
+        # before
+        hello,
+        # middle
+        world
+        # after
+      )
+      """
+
+      assert_same ~S"""
+      Remote.call(
+        # command
+      )
+      """
+    end
+
+    test "local with parens and keywords inside before and after" do
+      assert_same ~S"""
+      call(
+        # before
+        hello,
+        # middle
+        world,
+        # key before
+        key: hello,
+        # key middle
+        key: world
+        # key after
+      )
+      """
+    end
+
+    test "remote with parens and keywords inside before and after" do
+      assert_same ~S"""
+      call(
+        # before
+        hello,
+        # middle
+        world,
+        # key before
+        key: hello,
+        # key middle
+        key: world
+        # key after
+      )
+      """
+    end
+
+    test "local with no parens inside before and after" do
+      bad = ~S"""
+             # before
+      assert hello,
+             # middle
+             world
+             # after
+      """
+
+      assert_format bad, ~S"""
+      # before
+      assert hello,
+             # middle
+             world
+
+      # after
+      """
+    end
+
+    test "local with no parens and keywords inside before and after" do
+      bad = ~S"""
+      config hello, world,
+        # key before
+        key: hello,
+        # key middle
+        key: world
+        # key after
+      """
+
+      assert_format bad, ~S"""
+      config hello, world,
+        # key before
+        key: hello,
+        # key middle
+        key: world
+
+      # key after
+      """
+
+      bad = ~S"""
+             # before
+      config hello,
+             # middle
+             world,
+             # key before
+             key: hello,
+             # key middle
+             key: world
+             # key after
+      """
+
+      assert_format bad, ~S"""
+      # before
+      config hello,
+             # middle
+             world,
+             # key before
+             key: hello,
+             # key middle
+             key: world
+
+      # key after
       """
     end
   end
@@ -886,9 +1026,10 @@ defmodule Code.Formatter.CommentsTest do
         # 1. three
         one: one,
         one: after_one,
-        one: after_one do
-          :ok
-        end,
+        one:
+          after_one do
+            :ok
+          end,
 
         # 2. one
 
@@ -956,9 +1097,10 @@ defmodule Code.Formatter.CommentsTest do
           # 1. three
           one: one,
           one: after_one,
-          one: after_one do
-            :ok
-          end,
+          one:
+            after_one do
+              :ok
+            end,
 
           # 2. one
 

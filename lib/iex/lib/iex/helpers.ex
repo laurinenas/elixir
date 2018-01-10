@@ -38,6 +38,8 @@ defmodule IEx.Helpers do
     * `open/1`         - opens the source for the given module or function in your editor
     * `pid/1`          - creates a PID from a string
     * `pid/3`          - creates a PID with the 3 integer arguments passed
+    * `ref/1`          - creates a Reference from a string
+    * `ref/4`          - creates a Reference with the 4 integer arguments passed
     * `pwd/0`          - prints the current working directory
     * `r/1`            - recompiles the given module's source file
     * `recompile/0`    - recompiles the current project
@@ -55,7 +57,7 @@ defmodule IEx.Helpers do
 
       iex> exports(IEx.Helpers)
 
-  This module also include helpers for debugging purposes, see
+  This module also includes helpers for debugging purposes, see
   `IEx.break!/4` for more information.
 
   To learn more about IEx as a whole, type `h(IEx)`.
@@ -338,24 +340,6 @@ defmodule IEx.Helpers do
   end
 
   @doc """
-  Prints the specs for the given module or for the given function/arity pair.
-
-  ## Examples
-
-      iex> s(Enum)
-      iex> s(Enum.all?)
-      iex> s(Enum.all?/2)
-      iex> s(is_atom)
-      iex> s(is_atom/1)
-
-  """
-  defmacro s(term) do
-    quote do
-      IEx.Introspection.s(unquote(IEx.Introspection.decompose(term)))
-    end
-  end
-
-  @doc """
   Returns the value of the `n`th expression in the history.
 
   `n` can be a negative value: if it is, the corresponding expression value
@@ -465,9 +449,8 @@ defmodule IEx.Helpers do
 
   """
   def i(term \\ v(-1)) do
-    info =
-      [Term: inspect(term)] ++
-        IEx.Info.info(term) ++ ["Implemented protocols": all_implemented_protocols_for_term(term)]
+    implemented_protocols = [{"Implemented protocols", all_implemented_protocols_for_term(term)}]
+    info = [{"Term", inspect(term)}] ++ IEx.Info.info(term) ++ implemented_protocols
 
     for {subject, info} <- info do
       info = info |> to_string() |> String.trim() |> String.replace("\n", "\n  ")
@@ -781,8 +764,8 @@ defmodule IEx.Helpers do
   Continues execution of the current process.
 
   This is usually called by sessions started with `IEx.pry/0`
-  or `IEx.break!/4`. This allows the current to execute until
-  the next breakpoint, which will automatically yield control
+  or `IEx.break!/4`. This allows the current process to execute
+  until the next breakpoint, which will automatically yield control
   back to IEx without requesting permission to pry.
 
   If the running process terminates, a new IEx session is
@@ -1108,6 +1091,31 @@ defmodule IEx.Helpers do
       '<' ++
         Integer.to_charlist(x) ++
         '.' ++ Integer.to_charlist(y) ++ '.' ++ Integer.to_charlist(z) ++ '>'
+    )
+  end
+
+  @doc """
+  Creates a Reference from `string`.
+
+  ## Examples
+
+      iex> ref("0.21.32.43")
+      #Reference<0.21.32.43>
+
+  """
+  def ref(string) when is_binary(string) do
+    :erlang.list_to_ref('#Ref<#{string}>')
+  end
+
+  def ref(w, x, y, z)
+      when is_integer(w) and w >= 0 and is_integer(x) and x >= 0 and is_integer(y) and y >= 0 and
+             is_integer(z) and z >= 0 do
+    :erlang.list_to_ref(
+      '<' ++
+        Integer.to_charlist(w) ++
+        '.' ++
+        Integer.to_charlist(x) ++
+        '.' ++ '.' ++ Integer.to_charlist(y) ++ '.' ++ '.' ++ Integer.to_charlist(z) ++ '.' ++ '>'
     )
   end
 

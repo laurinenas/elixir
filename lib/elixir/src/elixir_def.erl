@@ -50,7 +50,7 @@ fetch_definitions(File, Module) ->
   Table = elixir_module:defs_table(Module),
   Entries = ets:match(Table, {{def, '$1'}, '_', '_', '_', '_', '_'}),
   {All, Private} = fetch_definition(lists:sort(Entries), File, Module, Table, [], []),
-  Unreachable = elixir_locals:warn_unused_local(File, Module, Private),
+  Unreachable = elixir_locals:warn_unused_local(File, Module, All, Private),
   elixir_locals:ensure_no_import_conflict(File, Module, All),
   {All, Unreachable}.
 
@@ -60,7 +60,7 @@ fetch_definition([[Tuple] | T], File, Module, Table, All, Private) ->
   try ets:lookup_element(Table, {clauses, Tuple}, 2) of
     Clauses ->
       NewAll =
-        [{Tuple, Kind, Meta, Clauses} | All],
+        [{Tuple, Kind, add_defaults_to_meta(Defaults, Meta), Clauses} | All],
       NewPrivate =
         case (Kind == defp) orelse (Kind == defmacrop) of
           true ->
@@ -72,12 +72,15 @@ fetch_definition([[Tuple] | T], File, Module, Table, All, Private) ->
       fetch_definition(T, File, Module, Table, NewAll, NewPrivate)
   catch
     error:badarg ->
-      warn_bodyless_function(Check, Meta, File, Module, Kind, Tuple),
+      warn_bodiless_function(Check, Meta, File, Module, Kind, Tuple),
       fetch_definition(T, File, Module, Table, All, Private)
   end;
 
 fetch_definition([], _File, _Module, _Table, All, Private) ->
   {All, Private}.
+
+add_defaults_to_meta(0, Meta) -> Meta;
+add_defaults_to_meta(Defaults, Meta) -> [{defaults, Defaults} | Meta].
 
 %% Section for storing definitions
 
@@ -96,6 +99,10 @@ store_definition(Kind, CheckClauses, Call, Body, Pos) ->
   %% extract meta information like file and context.
   {_, Meta, _} = Call,
   DoCheckClauses = (not lists:keymember(context, 1, Meta)) andalso (CheckClauses),
+  Generated = case lists:keyfind(generated, 1, Meta) of
+    {generated, true} -> ?generated([]);
+    _ -> []
+  end,
 
   %% Check if there is a file information in the definition.
   %% If so, we assume this come from another source and
@@ -105,8 +112,8 @@ store_definition(Kind, CheckClauses, Call, Body, Pos) ->
   %% will always point to the quoted one and __ENV__.file will
   %% always point to the one at @file or the quoted one.
   {Location, Key} =
-    case elixir_utils:meta_location(Meta) of
-      {_, _} = Keep -> {Keep, keep};
+    case elixir_utils:meta_keep(Meta) of
+      {_, _} = MetaFile -> {MetaFile, keep};
       nil -> {nil, line}
     end,
 
@@ -114,27 +121,27 @@ store_definition(Kind, CheckClauses, Call, Body, Pos) ->
   LinifyArgs   = elixir_quote:linify(Line, Key, Args),
   LinifyGuards = elixir_quote:linify(Line, Key, Guards),
   LinifyBody   = elixir_quote:linify(Line, Key, Body),
-  Generated    = case DoCheckClauses of true -> []; false -> ?generated([]) end,
 
-  {EL, MetaLocation} =
+  {File, DefMeta} =
     case retrieve_location(Location, ?key(E, module)) of
       {F, L} ->
-        {E#{file := F}, [{line, Line}, {location, {F, L}} | Generated]};
+        {F, [{line, Line}, {file, {F, L}} | Generated]};
       nil ->
-        {E, [{line, Line} | Generated]}
+        {nil, [{line, Line} | Generated]}
     end,
 
-  assert_no_aliases_name(MetaLocation, Name, Args, EL),
-  assert_valid_name(MetaLocation, Kind, Name, Args, EL),
-  store_definition(MetaLocation, Kind, DoCheckClauses, Name, Arity,
-                   LinifyArgs, LinifyGuards, LinifyBody, ?key(E, file), EL).
+  run_with_location_change(File, E, fun(EL) ->
+    assert_no_aliases_name(DefMeta, Name, Args, EL),
+    assert_valid_name(DefMeta, Kind, Name, Args, EL),
+    store_definition(DefMeta, Kind, DoCheckClauses, Name, Arity,
+                     LinifyArgs, LinifyGuards, LinifyBody, ?key(E, file), EL)
+  end).
 
 store_definition(Meta, Kind, CheckClauses, Name, Arity, DefaultsArgs, Guards, Body, File, ER) ->
   Module = ?key(ER, module),
   Tuple = {Name, Arity},
   E = ER#{function := Tuple},
 
-  elixir_locals:record_definition(Tuple, Kind, Module),
   {Args, Defaults} = unpack_defaults(Kind, Meta, Name, DefaultsArgs, E),
   Clauses = [elixir_clauses:def(Clause, E) ||
              Clause <- def_to_clauses(Kind, Meta, Args, Guards, Body, E)],
@@ -165,8 +172,23 @@ retrieve_location(Location, Module) ->
       {elixir_utils:relative_to_cwd(File), Line}
   end.
 
+run_with_location_change(nil, E, Callback) ->
+  Callback(E);
+run_with_location_change(File, #{file := File} = E, Callback) ->
+  Callback(E);
+run_with_location_change(File, E, Callback) ->
+  EL = E#{file := File},
+  Tracker = ?key(E, lexical_tracker),
+
+  try
+    elixir_lexical:set_file(File, Tracker),
+    Callback(EL)
+  after
+    elixir_lexical:reset_file(Tracker)
+  end.
+
 def_to_clauses(_Kind, Meta, Args, [], nil, E) ->
-  check_args_for_bodyless_clause(Meta, Args, E),
+  check_args_for_bodiless_clause(Meta, Args, E),
   [];
 def_to_clauses(Kind, Meta, _Args, _Guards, nil, E) ->
   elixir_errors:form_error(Meta, ?key(E, file), elixir_expand, {missing_option, Kind, [do]});
@@ -201,7 +223,7 @@ store_definition(Check, Kind, Meta, Name, Arity, File, Module, Defaults, Clauses
         check_valid_kind(Meta, File, Name, Arity, Kind, StoredKind),
         (Check and StoredCheck) andalso
           check_valid_clause(Meta, File, Name, Arity, Kind, Data, StoredMeta, StoredFile),
-        check_valid_defaults(Meta, File, Name, Arity, Kind, Defaults, StoredDefaults, LastDefaults, LastHasBody),
+        check_valid_defaults(Meta, File, Name, Arity, Kind, Defaults, StoredDefaults, LastDefaults, HasBody, LastHasBody),
         max(Defaults, StoredDefaults);
       [] ->
         Defaults
@@ -270,27 +292,28 @@ check_valid_clause(Meta, File, Name, Arity, Kind, Data, StoredMeta, StoredFile) 
   end.
 
 % Clause with defaults after clause with defaults
-check_valid_defaults(Meta, File, Name, Arity, Kind, Defaults, StoredDefaults, _, _) when Defaults > 0, StoredDefaults > 0 ->
+check_valid_defaults(Meta, File, Name, Arity, Kind, Defaults, StoredDefaults, _, true, _) when Defaults > 0, StoredDefaults > 0 ->
   elixir_errors:form_error(Meta, File, ?MODULE, {clauses_with_defaults, {Kind, Name, Arity}});
 % Clause with defaults after clause(s) without defaults
-check_valid_defaults(Meta, File, Name, Arity, Kind, Defaults, 0, 0, _) when Defaults > 0 ->
+check_valid_defaults(Meta, File, Name, Arity, Kind, Defaults, 0, 0, _, _) when Defaults > 0 ->
   elixir_errors:form_warn(Meta, File, ?MODULE, {clauses_with_defaults, {Kind, Name, Arity}});
-% Clause without defaults directly after clause with defaults (body less does not count)
-check_valid_defaults(Meta, File, Name, Arity, Kind, 0, _, LastDefaults, true) when LastDefaults > 0 ->
+% Clause without defaults directly after clause with defaults (bodiless does not count)
+check_valid_defaults(Meta, File, Name, Arity, Kind, 0, _, LastDefaults, true, true) when LastDefaults > 0 ->
   elixir_errors:form_warn(Meta, File, ?MODULE, {clauses_with_defaults, {Kind, Name, Arity}});
 % Clause without defaults
-check_valid_defaults(_Meta, _File, _Name, _Arity, _Kind, 0, _, _, _) -> ok.
-
-warn_bodyless_function(Check, _Meta, _File, Module, _Kind, _Tuple)
-    when Check == false; Module == 'Elixir.Module' ->
-  ok;
-warn_bodyless_function(_Check, Meta, File, _Module, Kind, Tuple) ->
-  elixir_errors:form_warn(Meta, File, ?MODULE, {bodyless_clause, Kind, Tuple}),
+check_valid_defaults(_Meta, _File, _Name, _Arity, _Kind, 0, _StoredDefaults, _LastDefaults, _HasBody, _LastHasBody) ->
   ok.
 
-check_args_for_bodyless_clause(Meta, Args, E) ->
+warn_bodiless_function(Check, _Meta, _File, Module, _Kind, _Tuple)
+    when Check == false; Module == 'Elixir.Module' ->
+  ok;
+warn_bodiless_function(_Check, Meta, File, _Module, Kind, Tuple) ->
+  elixir_errors:form_warn(Meta, File, ?MODULE, {bodiless_clause, Kind, Tuple}),
+  ok.
+
+check_args_for_bodiless_clause(Meta, Args, E) ->
   [begin
-     elixir_errors:form_error(Meta, ?key(E, file), ?MODULE, invalid_args_for_bodyless_clause)
+     elixir_errors:form_error(Meta, ?key(E, file), ?MODULE, invalid_args_for_bodiless_clause)
    end || Arg <- Args, invalid_arg(Arg)].
 
 invalid_arg({Name, _, Kind}) when is_atom(Name), is_atom(Kind) -> false;
@@ -325,7 +348,7 @@ assert_valid_name(_Meta, _Kind, _Name, _Args, _S) ->
 
 %% Format errors
 
-format_error({bodyless_clause, Kind, {Name, Arity}}) ->
+format_error({bodiless_clause, Kind, {Name, Arity}}) ->
   io_lib:format("implementation not provided for predefined ~ts ~ts/~B", [Kind, Name, Arity]);
 
 format_error({no_module, {Kind, Name, Arity}}) ->
@@ -367,7 +390,7 @@ format_error({no_alias, Atom}) ->
 format_error({invalid_def, Kind, NameAndArgs}) ->
   io_lib:format("invalid syntax in ~ts ~ts", [Kind, 'Elixir.Macro':to_string(NameAndArgs)]);
 
-format_error(invalid_args_for_bodyless_clause) ->
+format_error(invalid_args_for_bodiless_clause) ->
   "only variables and \\\\ are allowed as arguments in definition header.\n"
   "\n"
   "If you did not intend to define a header, make sure your function "

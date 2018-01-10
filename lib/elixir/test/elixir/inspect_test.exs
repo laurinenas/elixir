@@ -175,6 +175,10 @@ defmodule Inspect.BitStringTest do
     # non printable strings aren't affected by printable limit
     assert inspect(<<0, 1, 2, 3, 4>>, printable_limit: 3) == ~s(<<0, 1, 2, 3, 4>>)
   end
+
+  test "utf-8 BOM" do
+    assert inspect("\uFEFFhello world") == "\"\\uFEFFhello world\""
+  end
 end
 
 defmodule Inspect.NumberTest do
@@ -190,14 +194,17 @@ defmodule Inspect.NumberTest do
 
   test "hex" do
     assert inspect(100, base: :hex) == "0x64"
+    assert inspect(-100, base: :hex) == "-0x64"
   end
 
   test "octal" do
     assert inspect(100, base: :octal) == "0o144"
+    assert inspect(-100, base: :octal) == "-0o144"
   end
 
   test "binary" do
     assert inspect(86, base: :binary) == "0b1010110"
+    assert inspect(-86, base: :binary) == "-0b1010110"
   end
 
   test "float" do
@@ -228,6 +235,7 @@ defmodule Inspect.TupleTest do
   test "basic" do
     assert inspect({1, "b", 3}) == "{1, \"b\", 3}"
     assert inspect({1, "b", 3}, pretty: true, width: 1) == "{1,\n \"b\",\n 3}"
+    assert inspect({1, "b", 3}, pretty: true, width: 10) == "{1, \"b\",\n 3}"
   end
 
   test "empty" do
@@ -369,7 +377,7 @@ defmodule Inspect.ListTest do
     opts = [syntax_colors: [reset: :cyan, atom: :red, list: :green, number: :blue]]
     assert inspect([], opts) == "\e[32m[]\e[36m"
 
-    assert inspect([a: 9999], opts) == "\e[32m[\e[36m\e[31ma: \e[36m\e[34m9999\e[36m\e[32m]\e[36m"
+    assert inspect([a: 9999], opts) == "\e[32m[\e[36m\e[31ma:\e[36m \e[34m9999\e[36m\e[32m]\e[36m"
   end
 
   test "limit with colors" do
@@ -474,15 +482,15 @@ defmodule Inspect.MapTest do
     opts = [syntax_colors: [reset: :cyan, atom: :red, number: :magenta]]
     assert inspect(%{1 => 2}, opts) == "%{\e[35m1\e[36m => \e[35m2\e[36m}"
 
-    assert inspect(%{a: 1}, opts) == "%{\e[31ma: \e[36m\e[35m1\e[36m}"
+    assert inspect(%{a: 1}, opts) == "%{\e[31ma:\e[36m \e[35m1\e[36m}"
 
     assert inspect(%Public{key: 1}, opts) ==
-             "%Inspect.MapTest.Public{\e[31mkey: \e[36m\e[35m1\e[36m}"
+             "%Inspect.MapTest.Public{\e[31mkey:\e[36m \e[35m1\e[36m}"
 
     opts = [syntax_colors: [reset: :cyan, atom: :red, map: :green, number: :blue]]
 
     assert inspect(%{a: 9999}, opts) ==
-             "\e[32m%{\e[36m" <> "\e[31ma: \e[36m" <> "\e[34m9999\e[36m" <> "\e[32m}\e[36m"
+             "\e[32m%{\e[36m" <> "\e[31ma:\e[36m " <> "\e[34m9999\e[36m" <> "\e[32m}\e[36m"
   end
 end
 

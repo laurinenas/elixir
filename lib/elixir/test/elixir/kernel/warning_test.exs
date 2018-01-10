@@ -8,6 +8,20 @@ defmodule Kernel.WarningTest do
     capture_io(:stderr, fun)
   end
 
+  test "outdented heredoc" do
+    output =
+      capture_err(fn ->
+        Code.eval_string("""
+          '''
+        outdented
+          '''
+        """)
+      end)
+
+    assert output =~ "outdented heredoc line"
+    assert output =~ "nofile:2"
+  end
+
   test "unused variable" do
     output =
       capture_err(fn ->
@@ -28,6 +42,78 @@ defmodule Kernel.WarningTest do
     assert output =~ "variable \"user\" is unused"
   after
     purge(Sample)
+  end
+
+  test "unsafe variable" do
+    message = "variable \"x\" is unsafe"
+
+    capture_err(fn ->
+      Code.eval_string("""
+      case false do
+        true -> x = 1
+        _ -> 1
+      end
+      x
+      """)
+    end) =~ message
+
+    capture_err(fn ->
+      Code.eval_string("""
+      false and (x = 1)
+      x
+      """)
+    end) =~ message
+
+    capture_err(fn ->
+      Code.eval_string("""
+      true or (x = 1)
+      x
+      """)
+    end) =~ message
+
+    capture_err(fn ->
+      Code.eval_string("""
+      if false do
+        x = 1
+      end
+      x
+      """)
+    end) =~ message
+
+    capture_err(fn ->
+      Code.eval_string("""
+      cond do
+        false -> x = 1
+        true -> 1
+      end
+      x
+      """)
+    end) =~ message
+
+    capture_err(fn ->
+      Code.eval_string("""
+      receive do
+        :foo -> x = 1
+      after
+        0 -> 1
+      end
+      x
+      """)
+    end) =~ message
+
+    capture_err(fn ->
+      Code.eval_string("""
+      false && (x = 1)
+      x
+      """)
+    end) =~ message
+
+    capture_err(fn ->
+      Code.eval_string("""
+      true || (x = 1)
+      x
+      """)
+    end) =~ message
   end
 
   test "unused variable in redefined function in different file" do
@@ -417,7 +503,7 @@ defmodule Kernel.WarningTest do
     purge(Sample)
   end
 
-  test "`length(list) == 0` in guard" do
+  test "length(list) == 0 in guard" do
     assert capture_err(fn ->
              Code.eval_string("""
              defmodule Sample do
@@ -500,30 +586,79 @@ defmodule Kernel.WarningTest do
     purge(Sample)
   end
 
-  test "clause with defaults should be first" do
+  test "generated clause not match" do
     assert capture_err(fn ->
-             Code.eval_string(~S"""
+             Code.eval_string("""
              defmodule Sample do
-               def hello(arg), do: nil
-               def hello(arg \\ 0), do: nil
+               defmacro __using__(_) do
+                 quote do
+                   def hello, do: nil
+                   def hello, do: nil
+                 end
+               end
+             end
+             defmodule UseSample do
+               use Sample
              end
              """)
-           end) =~ "definitions with multiple clauses and default values require a header"
+           end) =~ "this clause cannot match because a previous clause at line 10 always matches"
   after
     purge(Sample)
+    purge(UseSample)
+  end
+
+  test "deprecated not left in right" do
+    assert capture_err(fn ->
+             Code.eval_string("not 1 in [1, 2, 3]")
+           end) =~ "deprecated"
+  end
+
+  test "clause with defaults should be first" do
+    message = "definitions with multiple clauses and default values require a header"
+
+    assert capture_err(fn ->
+             Code.eval_string(~S"""
+             defmodule Sample1 do
+               def hello(arg), do: arg
+               def hello(arg \\ 0), do: arg
+             end
+             """)
+           end) =~ message
+
+    assert capture_err(fn ->
+             Code.eval_string(~S"""
+             defmodule Sample2 do
+               def hello(_arg)
+               def hello(arg \\ 0), do: arg
+             end
+             """)
+           end) =~ message
+  after
+    purge([Sample1, Sample2])
   end
 
   test "clauses with default should use fun head" do
+    message = "definitions with multiple clauses and default values require a header"
+
     assert capture_err(fn ->
              Code.eval_string(~S"""
-             defmodule Sample do
-               def hello(arg \\ 0), do: nil
-               def hello(arg), do: nil
+             defmodule Sample1 do
+               def hello(arg \\ 0), do: arg
+               def hello(arg), do: arg
              end
              """)
-           end) =~ "definitions with multiple clauses and default values require a header"
+           end) =~ message
+
+    assert capture_err(fn ->
+             Code.eval_string(~S"""
+               defmodule Sample2 do
+                 def hello(arg \\ 0), do: arg
+                 def hello(_arg)
+               end
+             """)
+           end) == ""
   after
-    purge(Sample)
+    purge([Sample1, Sample2])
   end
 
   test "unused with local with overridable" do
@@ -634,7 +769,8 @@ defmodule Kernel.WarningTest do
                @behaviour Sample1
              end
              """)
-           end) =~ "undefined behaviour function foo/0 (for behaviour Sample1)"
+           end) =~
+             "function foo/0 required by behaviour Sample1 is not implemented (in module Sample2)"
   after
     purge([Sample1, Sample2])
   end
@@ -650,9 +786,77 @@ defmodule Kernel.WarningTest do
                @behaviour Sample1
              end
              """)
-           end) =~ "undefined behaviour macro foo/0 (for behaviour Sample1)"
+           end) =~
+             "macro foo/0 required by behaviour Sample1 is not implemented (in module Sample2)"
   after
     purge([Sample1, Sample2])
+  end
+
+  test "wrong kind for behaviour" do
+    assert capture_err(fn ->
+             Code.eval_string("""
+             defmodule Sample1 do
+               @callback foo :: term
+             end
+
+             defmodule Sample2 do
+               @behaviour Sample1
+               defmacro foo, do: :ok
+             end
+             """)
+           end) =~
+             "function foo/0 required by behaviour Sample1 was implemented as \"defmacro\" but should have been \"def\""
+  after
+    purge([Sample1, Sample2])
+  end
+
+  test "conflicting behaviour" do
+    assert capture_err(fn ->
+             Code.eval_string("""
+             defmodule Sample1 do
+               @callback foo :: term
+             end
+
+             defmodule Sample2 do
+               @callback foo :: term
+             end
+
+             defmodule Sample3 do
+               @behaviour Sample1
+               @behaviour Sample2
+             end
+             """)
+           end) =~
+             "conflicting behaviours found. function foo/0 is required by Sample1 and Sample2 (in module Sample3)"
+  after
+    purge([Sample1, Sample2, Sample3])
+  end
+
+  test "undefined behaviour" do
+    assert capture_err(fn ->
+             Code.eval_string("""
+             defmodule Sample do
+               @behaviour UndefinedBehaviour
+             end
+             """)
+           end) =~ "module UndefinedBehaviour does not exist (in module Sample)"
+  after
+    purge(Sample)
+  end
+
+  test "empty behaviours" do
+    assert capture_err(fn ->
+             Code.eval_string("""
+             defmodule EmptyBehaviour do
+             end
+             defmodule Sample do
+               @behaviour EmptyBehaviour
+             end
+             """)
+           end) =~ "module EmptyBehaviour is not a behaviour (in module Sample)"
+  after
+    purge(Sample)
+    purge(EmptyBehaviour)
   end
 
   test "undefined behavior" do
@@ -667,7 +871,7 @@ defmodule Kernel.WarningTest do
     purge(Sample)
   end
 
-  test "undefined macro for protocol" do
+  test "undefined function for protocol" do
     assert capture_err(fn ->
              Code.eval_string("""
              defprotocol Sample1 do
@@ -677,7 +881,8 @@ defmodule Kernel.WarningTest do
              defimpl Sample1, for: Atom do
              end
              """)
-           end) =~ "undefined protocol function foo/1 (for protocol Sample1)"
+           end) =~
+             "function foo/1 required by protocol Sample1 is not implemented (in module Sample1.Atom)"
   after
     purge([Sample1, Sample1.Atom])
   end
@@ -890,6 +1095,107 @@ defmodule Kernel.WarningTest do
       end)
 
     assert output =~ ~s("catch" should always come after "rescue" in try)
+  end
+
+  test "unused variable in defguard" do
+    capture_err(fn ->
+      Code.eval_string("""
+      defmodule Sample do
+        defguard foo(bar, baz) when bar
+      end
+      """)
+    end) =~ "variable \"baz\" is unused"
+  after
+    purge(Sample)
+  end
+
+  test "unused import in defguard" do
+    assert capture_err(fn ->
+             Code.compile_string("""
+             defmodule Sample do
+               import Record
+               defguard is_record(baz) when baz
+             end
+             """)
+           end) =~ "unused import Record\n"
+  after
+    purge(Sample)
+  end
+
+  test "unused private guard" do
+    assert capture_err(fn ->
+             Code.compile_string("""
+             defmodule Sample do
+               defguardp foo(bar, baz) when bar + baz
+             end
+             """)
+           end) =~ "macro foo/2 is unused\n"
+  after
+    purge(Sample)
+  end
+
+  test "defguard overriding defmacro" do
+    capture_err(fn ->
+      Code.eval_string("""
+      defmodule Sample do
+        defmacro foo(bar), do: bar == :bar
+        defguard foo(baz) when baz == :baz
+      end
+      """)
+    end) =~ "this clause cannot match because a previous clause at line 2 always matches"
+  after
+    purge(Sample)
+  end
+
+  test "defmacro overriding defguard" do
+    capture_err(fn ->
+      Code.eval_string("""
+      defmodule Sample do
+        defguard foo(baz) when baz == :baz
+        defmacro foo(bar), do: bar == :bar
+      end
+      """)
+    end) =~ "this clause cannot match because a previous clause at line 2 always matches"
+  after
+    purge(Sample)
+  end
+
+  test "defguardp overriding defmacrop" do
+    capture_err(fn ->
+      Code.eval_string("""
+      defmodule Sample do
+        defmacrop foo(bar), do: bar == :bar
+        defguardp foo(baz) when baz == :baz
+      end
+      """)
+    end) =~ "this clause cannot match because a previous clause at line 2 always matches"
+  after
+    purge(Sample)
+  end
+
+  test "defmacrop overriding defguardp" do
+    capture_err(fn ->
+      Code.eval_string("""
+      defmodule Sample do
+      defguardp foo(baz) when baz == :baz
+        defmacrop foo(bar), do: bar == :bar
+      end
+      """)
+    end) =~ "this clause cannot match because a previous clause at line 2 always matches"
+  after
+    purge(Sample)
+  end
+
+  test "defguard needs an implementation" do
+    capture_err(fn ->
+      Code.eval_string("""
+      defmodule Sample do
+        defguard foo(bar)
+      end
+      """)
+    end) =~ "implementation not provided for predefined defguard"
+  after
+    purge(Sample)
   end
 
   defp purge(list) when is_list(list) do

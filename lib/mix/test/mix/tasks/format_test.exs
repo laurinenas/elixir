@@ -5,6 +5,16 @@ defmodule Mix.Tasks.FormatTest do
 
   import ExUnit.CaptureIO
 
+  defmodule FormatWithDepsApp do
+    def project do
+      [
+        app: :format_with_deps,
+        version: "0.1.0",
+        deps: [{:my_dep, "0.1.0", path: "deps/my_dep"}]
+      ]
+    end
+  end
+
   test "formats the given files", context do
     in_tmp context.test, fn ->
       File.write!("a.ex", """
@@ -33,6 +43,18 @@ defmodule Mix.Tasks.FormatTest do
     end
   end
 
+  test "is a no-op if the file is already formatted", context do
+    in_tmp context.test, fn ->
+      File.write!("a.ex", """
+      foo(bar)
+      """)
+
+      File.touch!("a.ex", {{2000, 1, 1}, {0, 0, 0}})
+      Mix.Tasks.Format.run(["a.ex"])
+      assert File.stat!("a.ex").mtime == {{2000, 1, 1}, {0, 0, 0}}
+    end
+  end
+
   test "does not write file to disk on dry-run", context do
     in_tmp context.test, fn ->
       File.write!("a.ex", """
@@ -47,15 +69,22 @@ defmodule Mix.Tasks.FormatTest do
     end
   end
 
-  test "prints file to stdout on --print", context do
+  test "reads file from stdin and prints to stdout", context do
     in_tmp context.test, fn ->
       File.write!("a.ex", """
       foo bar
       """)
 
-      output = capture_io(fn -> Mix.Tasks.Format.run(["a.ex", "--print"]) end)
+      output =
+        capture_io("foo( )", fn ->
+          Mix.Tasks.Format.run(["a.ex", "-"])
+        end)
 
       assert output == """
+             foo()
+             """
+
+      assert File.read!("a.ex") == """
              foo(bar)
              """
     end
@@ -84,6 +113,21 @@ defmodule Mix.Tasks.FormatTest do
     end
   end
 
+  test "checks if stdin is formatted with --check-formatted" do
+    assert_raise Mix.Error, ~r"mix format failed due to --check-formatted", fn ->
+      capture_io("foo( )", fn ->
+        Mix.Tasks.Format.run(["--check-formatted", "-"])
+      end)
+    end
+
+    output =
+      capture_io("foo()\n", fn ->
+        Mix.Tasks.Format.run(["--check-formatted", "-"])
+      end)
+
+    assert output == ""
+  end
+
   test "checks if file is equivalent with --check-equivalent", context do
     in_tmp context.test, fn ->
       File.write!("a.ex", """
@@ -98,7 +142,7 @@ defmodule Mix.Tasks.FormatTest do
     end
   end
 
-  test "formats with inputs and configuration from .formatter.exs", context do
+  test "uses inputs and configuration from .formatter.exs", context do
     in_tmp context.test, fn ->
       File.write!(".formatter.exs", """
       [
@@ -119,7 +163,7 @@ defmodule Mix.Tasks.FormatTest do
     end
   end
 
-  test "formats with inputs and configuration from --dot-formatter", context do
+  test "uses inputs and configuration from --dot-formatter", context do
     in_tmp context.test, fn ->
       File.write!("custom_formatter.exs", """
       [
@@ -137,6 +181,67 @@ defmodule Mix.Tasks.FormatTest do
       assert File.read!("a.ex") == """
              foo bar(baz)
              """
+    end
+  end
+
+  test "can read exported configuration from dependencies", context do
+    Mix.Project.push(__MODULE__.FormatWithDepsApp)
+
+    in_tmp context.test, fn ->
+      File.write!(".formatter.exs", """
+      [import_deps: [:my_dep]]
+      """)
+
+      File.write!("a.ex", """
+      my_fun :foo, :bar
+      """)
+
+      File.mkdir_p!("deps/my_dep/")
+
+      File.write!("deps/my_dep/.formatter.exs", """
+      [export: [locals_without_parens: [my_fun: 2]]]
+      """)
+
+      Mix.Tasks.Format.run(["a.ex"])
+
+      assert File.read!("a.ex") == """
+             my_fun :foo, :bar
+             """
+
+      manifest_path = Path.join(Mix.Project.manifest_path(), "cached_formatter_deps")
+      assert File.regular?(manifest_path)
+
+      # Let's check that the manifest gets updated if it's stale.
+      File.touch!(manifest_path, {{1970, 1, 1}, {0, 0, 0}})
+
+      Mix.Tasks.Format.run(["a.ex"])
+      assert File.stat!(manifest_path).mtime > {{1970, 1, 1}, {0, 0, 0}}
+    end
+  end
+
+  test "validates dependencies in :import_deps", context do
+    Mix.Project.push(__MODULE__.FormatWithDepsApp)
+
+    in_tmp context.test, fn ->
+      File.write!(".formatter.exs", """
+      [import_deps: [:my_dep]]
+      """)
+
+      message =
+        "Unavailable dependency :my_dep given to :import_deps in the formatter configuration. " <>
+          "The dependency cannot be found in the filesystem, please run mix deps.get and try again"
+
+      assert_raise Mix.Error, message, fn -> Mix.Tasks.Format.run([]) end
+
+      File.write!(".formatter.exs", """
+      [import_deps: [:nonexistent_dep]]
+      """)
+
+      message =
+        "Unknown dependency :nonexistent_dep given to :import_deps in the formatter configuration. " <>
+          "The dependency is not listed in your mix.exs file"
+
+      assert_raise Mix.Error, message, fn -> Mix.Tasks.Format.run([]) end
     end
   end
 

@@ -241,15 +241,14 @@ defmodule Kernel.ExpansionTest do
 
       assert expand(code)
 
-      message =
-        ~r"expected variable \"a\" to expand to an existing variable or be part of a match"
+      message = ~r"expected \"a\" to expand to an existing variable or be part of a match"
 
       assert_raise CompileError, message, fn ->
         expand(quote(do: var!(a)))
       end
 
       message =
-        ~r"expected variable \"a\" \(context Unknown\) to expand to an existing variable or be part of a match"
+        ~r"expected \"a\" \(context Unknown\) to expand to an existing variable or be part of a match"
 
       assert_raise CompileError, message, fn ->
         expand(quote(do: var!(a, Unknown)))
@@ -257,7 +256,7 @@ defmodule Kernel.ExpansionTest do
     end
 
     test "raises for _ used outside of a match" do
-      assert_raise CompileError, ~r"unbound variable _", fn ->
+      assert_raise CompileError, ~r"invalid use of _", fn ->
         expand(quote(do: {1, 2, _}))
       end
     end
@@ -296,7 +295,7 @@ defmodule Kernel.ExpansionTest do
     end
 
     test "raises when the var is undefined" do
-      assert_raise CompileError, ~r"unbound variable \^foo", fn ->
+      assert_raise CompileError, ~r"unknown variable \^foo", fn ->
         expand(quote(do: ^foo = :foo))
       end
     end
@@ -360,13 +359,13 @@ defmodule Kernel.ExpansionTest do
     end
 
     test "with variables on keys" do
-      assert expand(quote(do: %{x = 1 => 1})) == quote(do: %{x = 1 => 1})
+      assert expand(quote(do: %{(x = 1) => 1})) == quote(do: %{(x = 1) => 1})
 
       assert_raise CompileError, ~r"illegal use of variable x inside map key match,", fn ->
         expand(quote(do: %{x => 1} = %{}))
       end
 
-      assert_raise CompileError, ~r"unbound variable \^x", fn ->
+      assert_raise CompileError, ~r"unknown variable \^x", fn ->
         expand(quote(do: {x, %{^x => 1}} = %{}))
       end
     end
@@ -644,6 +643,14 @@ defmodule Kernel.ExpansionTest do
     test "require do option" do
       assert_raise CompileError, ~r"missing :do option in \"for\"", fn ->
         expand(quote(do: for(_ <- 1..2)))
+      end
+    end
+
+    test "uniq option is boolean" do
+      message = ~r":uniq option for comprehensions only accepts a boolean, got: x"
+
+      assert_raise CompileError, message, fn ->
+        expand(quote(do: for(x <- 1..2, uniq: x, do: x)))
       end
     end
 
@@ -1049,7 +1056,7 @@ defmodule Kernel.ExpansionTest do
     end
 
     test "raises for _ in clauses" do
-      message = ~r"unbound variable _ inside \"cond\"\. If you want the last clause"
+      message = ~r"invalid use of _ inside \"cond\"\. If you want the last clause"
 
       assert_raise CompileError, message, fn ->
         code =

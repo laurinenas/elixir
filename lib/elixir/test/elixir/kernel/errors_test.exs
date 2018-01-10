@@ -9,10 +9,25 @@ defmodule Kernel.ErrorsTest do
     end
   end
 
+  test "no optional arguments in fn" do
+    assert_eval_raise CompileError,
+                      "nofile:1: anonymous functions cannot have optional arguments",
+                      'fn x \\\\ 1 -> x end'
+
+    assert_eval_raise CompileError,
+                      "nofile:1: anonymous functions cannot have optional arguments",
+                      'fn x, y \\\\ 1 -> x + y end'
+  end
+
   test "invalid token" do
     assert_eval_raise SyntaxError,
                       "nofile:1: unexpected token: \"\u200B\" (column 7, codepoint U+200B)",
                       '[foo: \u200B]\noops'
+  end
+
+  test "reserved tokens" do
+    assert_eval_raise SyntaxError, "nofile:1: reserved token: __aliases__", '__aliases__'
+    assert_eval_raise SyntaxError, "nofile:1: reserved token: __block__", '__block__'
   end
 
   test "invalid __CALLER__" do
@@ -615,12 +630,6 @@ defmodule Kernel.ErrorsTest do
                       'defmodule Kernel.ErrorsTest.InvalidDefinition, do: (def 1.(hello), do: true)'
   end
 
-  test "invalid pin in definition" do
-    assert_eval_raise CompileError,
-                      "nofile:1: cannot use ^hello on function/macro definition as there are no previous variables",
-                      'defmodule Kernel.ErrorsTest.InvalidDefinition, do: (def foo(^hello), do: :ok)'
-  end
-
   test "invalid size in bitstrings" do
     assert_eval_raise CompileError,
                       "nofile:1: cannot use ^x outside of match clauses",
@@ -697,22 +706,6 @@ defmodule Kernel.ErrorsTest do
                         def foo(_), do: :ok
                       end
                       '''
-  end
-
-  test "typespec errors" do
-    assert_eval_raise CompileError, "nofile:2: type foo() undefined", '''
-    defmodule Kernel.ErrorsTest.TypespecErrors1 do
-      @type omg :: foo
-    end
-    '''
-
-    message = "nofile:2: spec for undefined function omg/0"
-
-    assert_eval_raise CompileError, message, '''
-    defmodule Kernel.ErrorsTest.TypespecErrors2 do
-      @spec omg :: atom
-    end
-    '''
   end
 
   test "bad multi-call" do

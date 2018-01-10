@@ -262,7 +262,7 @@ expand({for, Meta, [_ | _] = Args}, E) ->
         {Args, []}
     end,
 
-  validate_opts(Meta, for, [do, into], Block, E),
+  validate_opts(Meta, for, [do, into, uniq], Block, E),
   {Expr, Opts} =
     case lists:keytake(do, 1, Block) of
       {value, {do, Do}, DoOpts} ->
@@ -270,6 +270,12 @@ expand({for, Meta, [_ | _] = Args}, E) ->
       false ->
         form_error(Meta, ?key(E, file), ?MODULE, {missing_option, for, [do]})
     end,
+
+  case lists:keyfind(uniq, 1, Opts) of
+    false -> ok;
+    {uniq, Value} when is_boolean(Value) -> ok;
+    {uniq, Value} -> form_error(Meta, ?key(E, file), ?MODULE, {for_invalid_uniq, Value})
+  end,
 
   {EOpts, EO} = expand(Opts, E),
   {ECases, EC} = lists:mapfoldl(fun expand_for/2, EO, Cases),
@@ -302,9 +308,6 @@ expand({super, Meta, Args}, #{file := File} = E) when is_list(Args) ->
 
 %% Vars
 
-expand({'^', Meta, [Arg]}, #{context := match, prematch_vars := nil} = E) ->
-  form_error(Meta, ?key(E, file), ?MODULE, {pin_inside_definition, Arg});
-
 expand({'^', Meta, [Arg]}, #{context := match, prematch_vars := PrematchVars} = E) ->
   case expand(Arg, E) of
     {{VarName, VarMeta, Kind} = Var, EA} when is_atom(VarName), is_atom(Kind) ->
@@ -330,6 +333,7 @@ expand({'_', Meta, Kind}, E) when is_atom(Kind) ->
   form_error(Meta, ?key(E, file), ?MODULE, unbound_underscore);
 
 expand({Name, Meta, Kind} = Var, #{context := match} = E) when is_atom(Name), is_atom(Kind) ->
+  %% TODO: Merge match_vars and prematch_vars once export_vars is removed.
   #{vars := Vars, match_vars := Match, export_vars := Export} = E,
   Pair = {Name, var_context(Meta, Kind)},
   NewVars = ordsets:add_element(Pair, Vars),
@@ -353,10 +357,13 @@ expand({Name, Meta, Kind} = Var, #{vars := Vars} = E) when is_atom(Name), is_ato
       warn_underscored_var_access(Meta, Name, Kind, E),
       {Var, E};
     false ->
+      %% TODO: var true will no longer be necessary once we always raise for vars
+      %% The value comes from the var! macro in Kernel.
       case lists:keyfind(var, 1, Meta) of
         {var, true} ->
           form_error(Meta, ?key(E, file), ?MODULE, {undefined_var, Name, Kind});
         _ ->
+          %% TODO: Raise instead of warning in Elixir v2.0.
           case ?key(E, match_vars) of
             warn ->
               Message =
@@ -380,18 +387,6 @@ expand({Atom, Meta, Args}, E) when is_atom(Atom), is_list(Meta), is_list(Args) -
   end);
 
 %% Remote calls
-
-expand({{'.', Meta, [erlang, 'orelse']}, _, [Left, Right]}, #{context := nil} = Env) ->
-  Generated = ?generated(Meta),
-  TrueClause = {'->', Generated, [[true], true]},
-  FalseClause = {'->', Generated, [[false], Right]},
-  expand_boolean_check('or', Left, TrueClause, FalseClause, Meta, Env);
-
-expand({{'.', Meta, [erlang, 'andalso']}, _, [Left, Right]}, #{context := nil} = Env) ->
-  Generated = ?generated(Meta),
-  TrueClause = {'->', Generated, [[true], Right]},
-  FalseClause = {'->', Generated, [[false], false]},
-  expand_boolean_check('and', Left, TrueClause, FalseClause, Meta, Env);
 
 expand({{'.', DotMeta, [Left, Right]}, Meta, Args}, E)
     when (is_tuple(Left) orelse is_atom(Left)), is_atom(Right), is_list(Meta), is_list(Args) ->
@@ -463,20 +458,6 @@ expand(Other, E) ->
   form_error([{line, 0}], ?key(E, file), ?MODULE, {invalid_quoted_expr, Other}).
 
 %% Helpers
-
-expand_boolean_check(Op, Expr, TrueClause, FalseClause, Meta, Env) ->
-  {EExpr, EnvExpr} = expand(Expr, Env),
-  Clauses =
-    case elixir_utils:returns_boolean(EExpr) of
-      true ->
-        [TrueClause, FalseClause];
-      false ->
-        Other = {other, Meta, ?var_context},
-        OtherExpr = {{'.', Meta, [erlang, error]}, Meta, [{'{}', [], [badbool, Op, Other]}]},
-        [TrueClause, FalseClause, {'->', ?generated(Meta), [[Other], OtherExpr]}]
-    end,
-  {EClauses, EnvCase} = elixir_clauses:'case'(Meta, [{do, Clauses}], EnvExpr),
-  {{'case', Meta, [EExpr, EClauses]}, EnvCase}.
 
 expand_multi_alias_call(Kind, Meta, Base, Refs, Opts, E) ->
   {BaseRef, EB} = expand_without_aliases_report(Base, E),
@@ -579,24 +560,28 @@ var_context(Meta, Kind) ->
 
 expand_case(true, Meta, Expr, Opts, E) ->
   {EExpr, EE} = expand(Expr, E),
-  {EOpts, EO} = elixir_clauses:'case'(Meta, Opts, EE),
+
   ROpts =
-    case proplists:get_value(optimize_boolean, Meta, false) andalso
-         elixir_utils:returns_boolean(EExpr) of
-      true -> rewrite_case_clauses(EOpts);
-      false -> EOpts
+    case proplists:get_value(optimize_boolean, Meta, false) of
+      true ->
+        case elixir_utils:returns_boolean(EExpr) of
+          true -> rewrite_case_clauses(Opts);
+          false -> generated_case_clauses(Opts)
+        end;
+
+      false ->
+        Opts
     end,
-  {{'case', Meta, [EExpr, ROpts]}, EO};
+
+  {EOpts, EO} = elixir_clauses:'case'(Meta, ROpts, EE),
+  {{'case', Meta, [EExpr, EOpts]}, EO};
 expand_case(false, Meta, Expr, Opts, E) ->
   {Case, _} = expand_case(true, Meta, Expr, Opts, E),
   {Case, E}.
 
 rewrite_case_clauses([{do, [
   {'->', FalseMeta, [
-    [{'when', _, [Var, {{'.', _, [erlang, 'orelse']}, _, [
-      {{'.', _, [erlang, '=:=']}, _, [Var, nil]},
-      {{'.', _, [erlang, '=:=']}, _, [Var, false]}
-    ]}]}],
+    [{'when', _, [Var, {{'.', _, ['Elixir.Kernel', 'in']}, _, [Var, [false, nil]]}]}],
     FalseExpr
   ]},
   {'->', TrueMeta, [
@@ -604,12 +589,26 @@ rewrite_case_clauses([{do, [
     TrueExpr
   ]}
 ]}]) ->
-  [{do, [
-    {'->', FalseMeta, [[false], FalseExpr]},
-    {'->', TrueMeta, [[true], TrueExpr]}
-  ]}];
+  rewrite_case_clauses(FalseMeta, FalseExpr, TrueMeta, TrueExpr);
+
+rewrite_case_clauses([{do, [
+  {'->', FalseMeta, [[false], FalseExpr]},
+  {'->', TrueMeta, [[true], TrueExpr]} | _
+]}]) ->
+  rewrite_case_clauses(FalseMeta, FalseExpr, TrueMeta, TrueExpr);
+
 rewrite_case_clauses(Other) ->
-  Other.
+  generated_case_clauses(Other).
+
+rewrite_case_clauses(FalseMeta, FalseExpr, TrueMeta, TrueExpr) ->
+  [{do, [
+    {'->', ?generated(FalseMeta), [[false], FalseExpr]},
+    {'->', ?generated(TrueMeta), [[true], TrueExpr]}
+  ]}].
+
+generated_case_clauses([{do, Clauses}]) ->
+  RClauses = [{'->', ?generated(Meta), Args} || {'->', Meta, Args} <- Clauses],
+  [{do, RClauses}].
 
 %% Locals
 
@@ -852,6 +851,8 @@ context_info(Kind) -> io_lib:format(" (context ~ts)", [elixir_aliases:inspect(Ki
 should_warn(Meta) ->
   lists:keyfind(generated, 1, Meta) /= {generated, true}.
 
+%% Errors
+
 format_error({useless_literal, Term}) ->
   io_lib:format("code block contains unused literal ~ts "
                 "(remove the literal or assign it to _ to avoid warnings)",
@@ -864,14 +865,13 @@ format_error({useless_attr, Attr}) ->
   io_lib:format("module attribute @~ts in code block has no effect as it is never returned "
                 "(remove the attribute or assign it to _ to avoid warnings)",
                 [Attr]);
-
-%% Errors
-
 format_error({missing_option, Construct, Opts}) when is_list(Opts) ->
   StringOpts = lists:map(fun(Opt) -> [$: | atom_to_list(Opt)] end, Opts),
   io_lib:format("missing ~ts option in \"~ts\"", [string:join(StringOpts, "/"), Construct]);
 format_error({invalid_args, Construct}) ->
   io_lib:format("invalid arguments for \"~ts\"", [Construct]);
+format_error({for_invalid_uniq, Value}) ->
+  io_lib:format(":uniq option for comprehensions only accepts a boolean, got: ~ts", ['Elixir.Macro':to_string(Value)]);
 format_error(for_generator_start) ->
   "for comprehensions must start with a generator";
 format_error(unhandled_arrow_op) ->
@@ -890,23 +890,21 @@ format_error({invalid_context_opt_for_quote, Context}) ->
 format_error(wrong_number_of_args_for_super) ->
   "super must be called with the same number of arguments as the current definition";
 format_error({unbound_variable_pin, VarName}) ->
-  io_lib:format("unbound variable ^~ts", [VarName]);
+  io_lib:format("unknown variable ^~ts. No variable \"~ts\" has been defined before the current pattern", [VarName, VarName]);
 format_error({invalid_arg_for_pin, Arg}) ->
   io_lib:format("invalid argument for unary operator ^, expected an existing variable, got: ^~ts",
                 ['Elixir.Macro':to_string(Arg)]);
 format_error({pin_outside_of_match, Arg}) ->
   io_lib:format("cannot use ^~ts outside of match clauses", ['Elixir.Macro':to_string(Arg)]);
-format_error({pin_inside_definition, Arg}) ->
-  io_lib:format("cannot use ^~ts on function/macro definition as there are no previous variables", ['Elixir.Macro':to_string(Arg)]);
 format_error(unbound_underscore) ->
-  "unbound variable _";
+  "invalid use of _. \"_\" represents a value to be ignored in a pattern and cannot be used in expressions";
 format_error({undefined_var, Name, Kind}) ->
   Message =
-    "expected variable \"~ts\"~ts to expand to an existing variable "
+    "expected \"~ts\"~ts to expand to an existing variable "
     "or be part of a match",
   io_lib:format(Message, [Name, context_info(Kind)]);
 format_error(underscore_in_cond) ->
-  "unbound variable _ inside \"cond\". If you want the last clause to always match, "
+  "invalid use of _ inside \"cond\". If you want the last clause to always match, "
     "you probably meant to use: true ->";
 format_error({invalid_expr_in_guard, Kind}) ->
   Message =
@@ -958,6 +956,18 @@ format_error({unsupported_option, Kind, Key}) ->
 format_error({options_are_not_keyword, Kind, Opts}) ->
   io_lib:format("invalid options for ~s, expected a keyword list, got: ~ts",
                 [Kind, 'Elixir.Macro':to_string(Opts)]);
+format_error({undefined_function, '|', [_, _]}) ->
+  "misplaced operator |/2\n\n"
+  "The | operator is typically used between brackets as the cons operator:\n\n"
+  "    [head | tail]\n\n"
+  "where head is a single element and the tail is the remaining of a list.\n"
+  "It is also used to update maps and structs, via the %{map | key: value} notation,\n"
+  "and in typespecs, such as @type and @spec, to express the union of two types";
+format_error({undefined_function, '::', [_, _]}) ->
+  "misplaced operator ::/2\n\n"
+  "The :: operator is typically used in bitstrings to specify types and sizes of segments:\n\n"
+  "    <<size::32-integer, letter::utf8, rest::binary>>\n\n"
+  "It is also used in typespecs, such as @type and @spec, to describe inputs and outputs";
 format_error({undefined_function, Name, Args}) ->
   io_lib:format("undefined function ~ts/~B", [Name, length(Args)]);
 format_error({underscored_var_repeat, Name, Kind}) ->

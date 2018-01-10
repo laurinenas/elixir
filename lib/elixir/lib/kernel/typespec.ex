@@ -207,10 +207,10 @@ defmodule Kernel.Typespec do
     body = {name, meta, Enum.map(args, &typespec_to_ast/1)}
 
     vars =
-      (args ++ [result])
-      |> Enum.flat_map(&collect_vars/1)
-      |> Enum.uniq()
-      |> Enum.map(&{&1, {:var, meta, nil}})
+      for type_expr <- args ++ [result],
+          var <- collect_vars(type_expr),
+          uniq: true,
+          do: {var, {:var, meta, nil}}
 
     spec = {:::, meta, [body, typespec_to_ast(result)]}
 
@@ -234,13 +234,14 @@ defmodule Kernel.Typespec do
       end
 
     meta = [line: line]
+    ignore_vars = Keyword.keys(guards)
 
     vars =
-      (args ++ [result])
-      |> Enum.flat_map(&collect_vars/1)
-      |> Enum.uniq()
-      |> Kernel.--(Keyword.keys(guards))
-      |> Enum.map(&{&1, {:var, meta, nil}})
+      for type_expr <- args ++ [result],
+          var <- collect_vars(type_expr),
+          var not in ignore_vars,
+          uniq: true,
+          do: {var, {:var, meta, nil}}
 
     args = for arg <- args, do: typespec_to_ast(arg)
 
@@ -379,7 +380,8 @@ defmodule Kernel.Typespec do
   def spec_to_signature(other), do: type_to_signature(other)
 
   @doc false
-  def type_to_signature({:::, _, [{name, _, context}, _]}) when is_atom(name) and is_atom(context),
+  def type_to_signature({:::, _, [{name, _, context}, _]})
+      when is_atom(name) and is_atom(context),
       do: {name, 0}
 
   def type_to_signature({:::, _, [{name, _, args}, _]}) when is_atom(name),
@@ -410,6 +412,7 @@ defmodule Kernel.Typespec do
   defp store_callbackdoc(line, _file, module, kind, name, arity) do
     table = :elixir_module.data_table(module)
     {line, doc} = get_doc_info(table, :doc, line)
+    _ = get_since_info(table)
     :ets.insert(table, {{:callbackdoc, {name, arity}}, line, kind, doc})
   end
 
@@ -418,6 +421,10 @@ defmodule Kernel.Typespec do
       [{^attr, {line, doc}, _, _}] -> {line, doc}
       [] -> {line, nil}
     end
+  end
+
+  defp get_since_info(table) do
+    :ets.take(table, :since)
   end
 
   @doc false
@@ -433,6 +440,7 @@ defmodule Kernel.Typespec do
   defp store_typedoc(line, file, module, kind, name, arity) do
     table = :elixir_module.data_table(module)
     {line, doc} = get_doc_info(table, :typedoc, line)
+    _ = get_since_info(table)
 
     if kind == :typep && doc do
       warning =
@@ -475,7 +483,7 @@ defmodule Kernel.Typespec do
       compile_error(caller, "type #{name}/#{arity} is a builtin type and it cannot be redefined")
     end
 
-    {{kind, {name, arity}, type}, caller.line, export}
+    {kind, {name, arity}, caller.line, type, export}
   end
 
   def translate_type(_kind, other, pos) do
@@ -542,7 +550,7 @@ defmodule Kernel.Typespec do
       end
 
     arity = length(args)
-    {{kind, {name, arity}, spec}, caller.line}
+    {kind, {name, arity}, caller.line, spec}
   end
 
   defp ensure_no_defaults!(args) do
@@ -743,11 +751,13 @@ defmodule Kernel.Typespec do
     typespec_to_ast({:type, line, :charlist, []})
   end
 
-  defp typespec_to_ast({
-         :remote_type,
-         line,
-         [{:atom, _, :elixir}, {:atom, _, :nonempty_charlist}, []]
-       }) do
+  defp typespec_to_ast(
+         {
+           :remote_type,
+           line,
+           [{:atom, _, :elixir}, {:atom, _, :nonempty_charlist}, []]
+         }
+       ) do
     typespec_to_ast({:type, line, :nonempty_charlist, []})
   end
 
@@ -755,7 +765,9 @@ defmodule Kernel.Typespec do
     typespec_to_ast({:type, line, :struct, []})
   end
 
-  defp typespec_to_ast({:remote_type, line, [{:atom, _, :elixir}, {:atom, _, :as_boolean}, [arg]]}) do
+  defp typespec_to_ast(
+         {:remote_type, line, [{:atom, _, :elixir}, {:atom, _, :as_boolean}, [arg]]}
+       ) do
     typespec_to_ast({:type, line, :as_boolean, [arg]})
   end
 

@@ -654,6 +654,16 @@ defmodule Kernel do
       iex> max(:a, :b)
       :b
 
+  Using Erlang's term ordering means that comparisons are
+  structural and not semantic. For example, when comparing dates:
+
+      iex> max(~D[2017-03-31], ~D[2017-04-01])
+      ~D[2017-03-31]
+
+  In the example above, `max/1` returned March 31st instead of April 1st
+  because the structural comparison compares the day before the year. In
+  such cases it is common for modules to provide functions such as
+  `Date.compare/1` that perform semantic comparison.
   """
   @spec max(first, second) :: first | second when first: term, second: term
   def max(first, second) do
@@ -675,6 +685,16 @@ defmodule Kernel do
       iex> min("foo", "bar")
       "bar"
 
+  Using Erlang's term ordering means that comparisons are
+  structural and not semantic. For example, when comparing dates:
+
+      iex> min(~D[2017-03-31], ~D[2017-04-01])
+      ~D[2017-04-01]
+
+  In the example above, `min/1` returned April 1st instead of March 31st
+  because the structural comparison compares the day before the year. In
+  such cases it is common for modules to provide functions such as
+  `Date.compare/1` that perform semantic comparison.
   """
   @spec min(first, second) :: first | second when first: term, second: term
   def min(first, second) do
@@ -1303,7 +1323,7 @@ defmodule Kernel do
   Returns `true` if the two items are equal.
 
   This operator considers 1 and 1.0 to be equal. For stricter
-  semantics, use `===` instead.
+  semantics, use `===/2` instead.
 
   All terms in Elixir can be compared with each other.
 
@@ -1420,7 +1440,7 @@ defmodule Kernel do
   end
 
   @doc """
-  Inserts `value` at the given zero-based `index` in `tuple`.
+  Puts `value` at the given zero-based `index` in `tuple`.
 
   Inlined by the compiler.
 
@@ -1437,6 +1457,10 @@ defmodule Kernel do
   end
 
   ## Implemented in Elixir
+
+  defp optimize_boolean({:case, meta, args}) do
+    {:case, [{:optimize_boolean, true} | meta], args}
+  end
 
   @doc """
   Boolean or.
@@ -1459,7 +1483,10 @@ defmodule Kernel do
 
   """
   defmacro left or right do
-    quote(do: :erlang.orelse(unquote(left), unquote(right)))
+    case __CALLER__.context do
+      nil -> build_boolean_check(:or, left, true, right)
+      _ -> quote(do: :erlang.orelse(unquote(left), unquote(right)))
+    end
   end
 
   @doc """
@@ -1482,7 +1509,27 @@ defmodule Kernel do
 
   """
   defmacro left and right do
-    quote(do: :erlang.andalso(unquote(left), unquote(right)))
+    case __CALLER__.context do
+      nil -> build_boolean_check(:and, left, right, false)
+      _ -> quote(do: :erlang.andalso(unquote(left), unquote(right)))
+    end
+  end
+
+  defp build_boolean_check(operator, check, true_clause, false_clause) do
+    optimize_boolean(
+      quote do
+        case unquote(check) do
+          true ->
+            unquote(true_clause)
+
+          false ->
+            unquote(false_clause)
+
+          other ->
+            :erlang.error(BadBooleanError.exception(operator: unquote(operator), term: other))
+        end
+      end
+    )
   end
 
   @doc """
@@ -1508,7 +1555,7 @@ defmodule Kernel do
     optimize_boolean(
       quote do
         case unquote(value) do
-          x when x in [false, nil] -> false
+          x when :"Elixir.Kernel".in(x, [false, nil]) -> false
           _ -> true
         end
       end
@@ -1519,7 +1566,7 @@ defmodule Kernel do
     optimize_boolean(
       quote do
         case unquote(value) do
-          x when x in [false, nil] -> true
+          x when :"Elixir.Kernel".in(x, [false, nil]) -> true
           _ -> false
         end
       end
@@ -1534,7 +1581,7 @@ defmodule Kernel do
       iex> "foo" <> "bar"
       "foobar"
 
-  The `<>` operator can also be used in pattern matching (and guard clauses) as
+  The `<>/2` operator can also be used in pattern matching (and guard clauses) as
   long as the first part is a literal binary:
 
       iex> "foo" <> x = "foobar"
@@ -1696,26 +1743,7 @@ defmodule Kernel do
 
       message ->
         quote do
-          stacktrace = unquote(stacktrace)
-
-          case unquote(message) do
-            message when is_binary(message) ->
-              :erlang.raise(:error, RuntimeError.exception(message), stacktrace)
-
-            atom when is_atom(atom) ->
-              :erlang.raise(:error, atom.exception([]), stacktrace)
-
-            %_{__exception__: true} = other ->
-              :erlang.raise(:error, other, stacktrace)
-
-            other ->
-              message = <<
-                "reraise/2 expects a module name, string or exception",
-                "as the first argument, got: #{inspect(other)}"
-              >>
-
-              :erlang.error(ArgumentError.exception(message))
-          end
+          :erlang.raise(:error, Kernel.Utils.raise(unquote(message)), unquote(stacktrace))
         end
     end
   end
@@ -2810,7 +2838,7 @@ defmodule Kernel do
     optimize_boolean(
       quote do
         case unquote(condition) do
-          x when x in [false, nil] -> unquote(else_clause)
+          x when :"Elixir.Kernel".in(x, [false, nil]) -> unquote(else_clause)
           _ -> unquote(do_clause)
         end
       end
@@ -2978,7 +3006,7 @@ defmodule Kernel do
   defmacro left && right do
     quote do
       case unquote(left) do
-        x when x in [false, nil] ->
+        x when :"Elixir.Kernel".in(x, [false, nil]) ->
           x
 
         _ ->
@@ -3014,7 +3042,7 @@ defmodule Kernel do
   defmacro left || right do
     quote do
       case unquote(left) do
-        x when x in [false, nil] ->
+        x when :"Elixir.Kernel".in(x, [false, nil]) ->
           unquote(right)
 
         x ->
@@ -3772,7 +3800,7 @@ defmodule Kernel do
 
   ## rescue/catch/after
 
-  Function bodies support `rescue`, `catch` and `after` as `SpecialForms.try/1`
+  Function bodies support `rescue`, `catch` and `after` as `Kernel.SpecialForms.try/1`
   does. The following two functions are equivalent:
 
       def format(value) do
@@ -3879,7 +3907,7 @@ defmodule Kernel do
       end
 
     # Do not check clauses if any expression was unquoted
-    check_clauses = not(unquoted_expr or unquoted_call)
+    check_clauses = not (unquoted_expr or unquoted_call)
     pos = :elixir_locals.cache_env(env)
 
     quote do
@@ -3955,8 +3983,9 @@ defmodule Kernel do
   For each protocol in the `@derive` list, Elixir will assert there is an
   implementation of that protocol for any (regardless if fallback to any
   is `true`) and check if the any implementation defines a `__deriving__/3`
-  callback. If so, the callback is invoked, otherwise an implementation
-  that simply points to the any implementation is automatically derived.
+  callback (via `Protocol.derive/3`). If so, the callback is invoked,
+  otherwise an implementation that simply points to the any implementation
+  is automatically derived.
 
   ## Enforcing keys
 
@@ -4132,20 +4161,17 @@ defmodule Kernel do
       struct = defstruct([__exception__: true] ++ fields)
 
       if Map.has_key?(struct, :message) do
-        @spec message(Exception.t()) :: String.t()
         def message(exception) do
           exception.message
         end
 
         defoverridable message: 1
 
-        @spec exception(String.t()) :: Exception.t()
         def exception(msg) when is_binary(msg) do
           exception(message: msg)
         end
       end
 
-      @spec exception(keyword) :: Exception.t()
       # TODO: Only call Kernel.struct! by 2.0
       def exception(args) when is_list(args) do
         struct = __struct__()
@@ -4351,14 +4377,44 @@ defmodule Kernel do
 
   In order to speed up dispatching in production environments, where
   all implementations are known up-front, Elixir provides a feature
-  called protocol consolidation. For this reason, all protocols are
-  compiled with `debug_info` set to `true`, regardless of the option
-  set by `elixirc` compiler. The debug info though may be removed after
-  consolidation.
+  called protocol consolidation. Consolidation directly links protocols
+  to their implementations in a way that invoking a function from a
+  consolidated protocol is equivalent to invoking two remote functions.
 
-  Protocol consolidation is applied by default to all Mix projects.
-  For applying consolidation manually, please check the functions in
-  the `Protocol` module or the `mix compile.protocols` task.
+  Protocol consolidation is applied by default to all Mix projects during
+  compilation. This may be an issue during test. For instance, if you want
+  to implement a protocol during test, the implementation will have no
+  effect, as the protocol has already been consolidated. One possible
+  solution is to include compilation directories that are specific to your
+  test environment in your mix.exs:
+
+      def project do
+        ...
+        elixirc_paths: elixirc_paths(Mix.env)
+        ...
+      end
+
+      defp elixirc_paths(:test), do: ["lib", "test/support"]
+      defp elixirc_paths(_), do: ["lib"]
+
+  And then you can define the implementations specific to the test environment
+  inside `test/support/some_file.ex`.
+
+  Another approach is to disable protocol consolidation during tests in your
+  mix.exs:
+
+      def project do
+        ...
+        consolidate_protocols: Mix.env != :test
+        ...
+      end
+
+  Although doing so is not recommended as it may affect your test suite
+  performance.
+
+  Finally note all protocols are compiled with `debug_info` set to `true`,
+  regardless of the option set by `elixirc` compiler. The debug info is
+  used for consolidation and it may be removed after consolidation.
   """
   defmacro defprotocol(name, do_block)
 
@@ -4448,6 +4504,103 @@ defmodule Kernel do
     quote do
       Module.make_overridable(__MODULE__, unquote(keywords_or_behaviour))
     end
+  end
+
+  @doc """
+  Generates a macro suitable for use in guard expressions.
+
+  It raises at compile time if the definition uses expressions that aren't
+  allowed in guards, and otherwise creates a macro that can be used both inside
+  or outside guards.
+
+  Note the convention in Elixir is to name functions/macros allowed in
+  guards with the `is_` prefix, such as `is_list/1`. If, however, the
+  function/macro returns a boolean and is not allowed in guards, it should
+  have no prefix and end with a question mark, such as `Keyword.keyword?/1`.
+
+  ## Example
+
+      defmodule Integer.Guards do
+        defguard is_even(value) when is_integer(value) and rem(value, 2) == 0
+      end
+
+      defmodule Collatz do
+        @moduledoc "Tools for working with the Collatz sequence."
+        import Integer.Guards
+
+        @doc "Determines the number of steps `n` takes to reach `1`."
+        # If this function never converges, please let me know what `n` you used.
+        def converge(n) when n > 0, do: step(n, 0)
+
+        defp step(1, step_count) do
+          step_count
+        end
+
+        defp step(n, step_count) when is_even(n) do
+          step(div(n, 2), step_count + 1)
+        end
+
+        defp step(n, step_count) do
+          step(3*n + 1, step_count + 1)
+        end
+      end
+
+  """
+  @spec defguard(Macro.t()) :: Macro.t()
+  defmacro defguard(guard) do
+    define_guard(:defmacro, guard, __CALLER__)
+  end
+
+  @doc """
+  Generates a private macro suitable for use in guard expressions.
+
+  It raises at compile time if the definition uses expressions that aren't
+  allowed in guards, and otherwise creates a private macro that can be used
+  both inside or outside guards in the current module.
+
+  Similar to `defmacrop/2`, `defguardp/2` must be defined before its use
+  in the current module.
+  """
+  @spec defguardp(Macro.t()) :: Macro.t()
+  defmacro defguardp(guard) do
+    define_guard(:defmacrop, guard, __CALLER__)
+  end
+
+  defp define_guard(kind, guard, env) do
+    case :elixir_utils.extract_guards(guard) do
+      {call, impl} when length(impl) < 2 ->
+        case Macro.decompose_call(call) do
+          {_name, args} ->
+            validate_variable_only_args!(call, args)
+
+            quoted =
+              quote do
+                require Kernel.Utils
+                Kernel.Utils.defguard(unquote(args), unquote(impl))
+              end
+
+            define(kind, call, [do: quoted], env)
+
+          _invalid_definition ->
+            raise ArgumentError, "invalid syntax in defguard #{Macro.to_string(call)}"
+        end
+
+      {call, _multiple_impls} ->
+        raise ArgumentError, "invalid syntax in defguard #{Macro.to_string(call)}"
+    end
+  end
+
+  defp validate_variable_only_args!(call, args) do
+    Enum.each(args, fn
+      {ref, _meta, context} when is_atom(ref) and is_atom(context) ->
+        :ok
+
+      {:\\, _m1, [{ref, _m2, context}, _default]} when is_atom(ref) and is_atom(context) ->
+        :ok
+
+      _match ->
+        raise ArgumentError, "invalid syntax in defguard #{Macro.to_string(call)}"
+    end)
   end
 
   @doc """
@@ -4641,10 +4794,6 @@ defmodule Kernel do
 
       for fun <- List.wrap(funs) do
         {name, args, as, as_args} = Kernel.Utils.defdelegate(fun, opts)
-
-        unless Module.get_attribute(__MODULE__, :doc) do
-          @doc "See `#{inspect(target)}.#{as}/#{:erlang.length(args)}`."
-        end
 
         def unquote(name)(unquote_splicing(args)) do
           unquote(target).unquote(as)(unquote_splicing(as_args))
@@ -4955,10 +5104,6 @@ defmodule Kernel do
   end
 
   ## Shared functions
-
-  defp optimize_boolean({:case, meta, args}) do
-    {:case, [{:optimize_boolean, true} | meta], args}
-  end
 
   # We need this check only for bootstrap purposes.
   # Once Kernel is loaded and we recompile, it is a no-op.

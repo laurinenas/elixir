@@ -76,7 +76,7 @@ defmodule ModuleTest do
   end
 
   test "in memory modules are tagged as so" do
-    assert :code.which(__MODULE__) == :in_memory
+    assert :code.which(__MODULE__) == ''
   end
 
   ## Eval
@@ -140,18 +140,13 @@ defmodule ModuleTest do
   ## Attributes
 
   test "reserved attributes" do
-    assert List.keyfind(ExUnit.Server.__info__(:attributes), :behaviour, 0) == {
-             :behaviour,
-             [GenServer]
-           }
+    assert List.keyfind(ExUnit.Server.__info__(:attributes), :behaviour, 0) ==
+             {:behaviour, [GenServer]}
   end
 
   test "registered attributes" do
-    assert Enum.filter(
-             __MODULE__.__info__(:attributes),
-             &(match?({:register_example, _}, &1) ==
-                 [{:register_example, [:it_works]}, {:register_example, [:still_works]}])
-           )
+    assert Enum.filter(__MODULE__.__info__(:attributes), &match?({:register_example, _}, &1)) ==
+             [{:register_example, [:it_works]}, {:register_example, [:still_works]}]
   end
 
   @some_attribute [1]
@@ -290,7 +285,7 @@ defmodule ModuleTest do
       end
 
     atoms = :beam_lib.chunks(binary, [:atoms])
-    assert :erlang.phash2(atoms) == 91_248_368
+    assert :erlang.phash2(atoms) == 98_328_115
   end
 
   test "create with generated true does not emit warnings" do

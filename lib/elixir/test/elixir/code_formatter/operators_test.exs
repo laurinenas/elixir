@@ -25,11 +25,11 @@ defmodule Code.Formatter.OperatorsTest do
     test "wraps operand if it is a unary or binary operator" do
       assert_format "!+1", "!(+1)"
       assert_format "+ +1", "+(+1)"
-      assert_format "not +1", "not(+1)"
+      assert_format "not +1", "not (+1)"
       assert_format "!not 1", "!(not 1)"
-      assert_format "not !1", "not(!1)"
-      assert_format "not (!1)", "not(!1)"
-      assert_format "not (1 + 1)", "not(1 + 1)"
+      assert_format "not !1", "not (!1)"
+      assert_format "not(!1)", "not (!1)"
+      assert_format "not(1 + 1)", "not (1 + 1)"
     end
 
     test "does not wrap operand if it is a nestable operator" do
@@ -125,6 +125,11 @@ defmodule Code.Formatter.OperatorsTest do
       assert_same "(not foo) in bar"
       assert_same "(!foo) in bar"
     end
+
+    test "bitwise precedence" do
+      assert_format "(crc ^^^ byte) &&& 0xFF", "crc ^^^ byte &&& 0xFF"
+      assert_same "(crc >>> 8) ^^^ byte"
+    end
   end
 
   describe "binary operators with preceding new line" do
@@ -147,9 +152,9 @@ defmodule Code.Formatter.OperatorsTest do
       good = """
       123
       |> foo(
-           bar,
-           baz
-         )
+        bar,
+        baz
+      )
       """
 
       assert_format bad, good, @short_length
@@ -159,11 +164,11 @@ defmodule Code.Formatter.OperatorsTest do
       good = """
       123
       |> foo(
-           bar
-         )
+        bar
+      )
       |> bar(
-           bat
-         )
+        bat
+      )
       """
 
       assert_format bad, good, @short_length
@@ -175,8 +180,8 @@ defmodule Code.Formatter.OperatorsTest do
         bar,
         123
         |> bar(
-             baz
-           )
+          baz
+        )
       )
       """
 
@@ -212,9 +217,9 @@ defmodule Code.Formatter.OperatorsTest do
       good = """
       123
       |> foo(
-           bar,
-           baz
-         )
+        bar,
+        baz
+      )
       |> 456
       """
 
@@ -515,11 +520,20 @@ defmodule Code.Formatter.OperatorsTest do
       """
 
       assert_format bad, good, @medium_length
+
+      assert_same """
+      var ::
+        {
+          :one,
+          :two
+        }
+        | :three
+      """
     end
   end
 
-  # Theoretically it fits under operators but the goal of
-  # this section is to test common idioms.
+  # Theoretically it fits under binary operators
+  # but the goal of this section is to test common idioms.
   describe "match" do
     test "with calls" do
       bad = "var = fun(one, two, three)"
@@ -573,34 +587,49 @@ defmodule Code.Formatter.OperatorsTest do
     end
 
     test "with containers" do
-      bad = "var = {one, two, three}"
+      bad = "var = [one, two, three]"
 
       good = """
-      var = {
+      var = [
         one,
         two,
         three
-      }
+      ]
       """
 
       assert_format bad, good, @short_length
 
-      bad = "{one, two, three} = var"
+      bad = """
+      var =
+        [one, two, three]
+      """
 
       good = """
-      {
+      var = [
         one,
         two,
         three
-      } = var
+      ]
       """
 
       assert_format bad, good, @short_length
 
-      bad = "{one, two, three} = foo(bar, baz)"
+      bad = "[one, two, three] = var"
 
       good = """
-      {one, two, three} =
+      [
+        one,
+        two,
+        three
+      ] = var
+      """
+
+      assert_format bad, good, @short_length
+
+      bad = "[one, two, three] = foo(bar, baz)"
+
+      good = """
+      [one, two, three] =
         foo(bar, baz)
       """
 
@@ -712,7 +741,7 @@ defmodule Code.Formatter.OperatorsTest do
       '''
       """
 
-      assert_same attribute, @short_length
+      assert_same attribute
 
       attribute = """
       @doc foo: '''
@@ -720,7 +749,7 @@ defmodule Code.Formatter.OperatorsTest do
            '''
       """
 
-      assert_same attribute, @short_length
+      assert_same attribute
     end
 
     test "without next break fits" do
@@ -777,8 +806,10 @@ defmodule Code.Formatter.OperatorsTest do
     end
 
     test "with operators outside" do
-      assert_same "(& &1) == (& &2)"
-      assert_same "[&IO.puts/1 | &IO.puts/2]"
+      assert_same "(& &1) == & &2"
+      assert_same "(& &1) and & &2"
+      assert_same "(&foo/1) and &bar/1"
+      assert_same "[(&IO.puts/1) | &IO.puts/2]"
     end
 
     test "with call expressions" do
@@ -857,7 +888,7 @@ defmodule Code.Formatter.OperatorsTest do
            three: :four
       """
 
-      assert_format bad, good, @short_length
+      assert_format bad, good, @medium_length
     end
   end
 end

@@ -5,7 +5,7 @@
 %% the line number to be none (as it may happen in some erlang errors).
 -module(elixir_errors).
 -export([compile_error/3, compile_error/4,
-         form_error/4, form_warn/4, parse_error/4, warn/1, warn/3]).
+         form_error/4, form_warn/4, parse_error/4, bare_warn/3, warn/3]).
 -include("elixir.hrl").
 
 -spec warn(non_neg_integer() | none, unicode:chardata(), unicode:chardata()) -> ok.
@@ -15,9 +15,9 @@ warn(Line, File, Warning) when is_integer(Line), is_binary(File) ->
   send_warning(File, Line, Warning),
   print_warning([Warning, "\n  ", file_format(Line, File), $\n]).
 
--spec warn(unicode:chardata()) -> ok.
-warn(Message) ->
-  send_warning(nil, nil, Message),
+-spec bare_warn(non_neg_integer() | nil, unicode:chardata() | nil, unicode:chardata()) -> ok.
+bare_warn(Line, File, Message) when is_integer(Line) or (Line == nil), is_binary(File) or (File == nil) ->
+  send_warning(File, Line, Message),
   print_warning(Message).
 
 warning_prefix() ->
@@ -72,8 +72,6 @@ parse_error(Line, File, <<"syntax error before: ">>, <<"eol">>) ->
 %% Show a nicer message for missing end tokens
 parse_error(Line, File, <<"syntax error before: ">>, <<"'end'">>) ->
   raise(Line, File, 'Elixir.SyntaxError', <<"unexpected token: end">>);
-
-%% TODO: Remove workarounds for sigils, aliases, binaries and interpolation.
 
 %% Produce a human-readable message for errors before a sigil
 parse_error(Line, File, <<"syntax error before: ">>, <<"{sigil,", _Rest/binary>> = Full) ->
@@ -141,7 +139,7 @@ file_format(Line, File) ->
   io_lib:format("~ts:~w", [elixir_utils:relative_to_cwd(File), Line]).
 
 meta_location(Meta, File) ->
-  case elixir_utils:meta_location(Meta) of
+  case elixir_utils:meta_keep(Meta) of
     {F, L} -> {F, L};
     nil    -> {File, ?line(Meta)}
   end.

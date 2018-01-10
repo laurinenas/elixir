@@ -15,13 +15,37 @@ defmodule Mix.RebarTest do
     end
   end
 
+  defmodule RebarAsDepWithEnv do
+    def project do
+      [
+        app: :rebar_as_dep,
+        version: "0.1.0",
+        deps: [
+          {
+            :rebar_dep,
+            path: MixTest.Case.tmp_path("rebar_dep"),
+            app: false,
+            manager: :rebar,
+            system_env: [{"FILE_FROM_ENV", "rebar-test-rebar"}, {"CONTENTS_FROM_ENV", "rebar"}]
+          }
+        ]
+      ]
+    end
+  end
+
   defmodule Rebar3AsDep do
     def project do
       [
         app: :rebar_as_dep,
         version: "0.1.0",
         deps: [
-          {:rebar_dep, path: MixTest.Case.tmp_path("rebar_dep"), app: false, manager: :rebar3}
+          {
+            :rebar_dep,
+            path: MixTest.Case.tmp_path("rebar_dep"),
+            app: false,
+            manager: :rebar3,
+            system_env: [{"FILE_FROM_ENV", "rebar-test-rebar3"}, {"CONTENTS_FROM_ENV", "rebar3"}]
+          }
         ]
       ]
     end
@@ -202,8 +226,8 @@ defmodule Mix.RebarTest do
         assert_received {:mix_shell, :info, ["* Getting git_rebar" <> _]}
 
         Mix.Tasks.Deps.Compile.run([])
-        assert_received {:mix_shell, :write, ["===> Compiling git_rebar\n"]}
-        assert_received {:mix_shell, :write, ["===> Compiling rebar_dep\n"]}
+        assert_received {:mix_shell, :run, ["===> Compiling git_rebar\n"]}
+        assert_received {:mix_shell, :run, ["===> Compiling rebar_dep\n"]}
         assert :git_rebar.any_function() == :ok
         assert :rebar_dep.any_function() == :ok
 
@@ -215,13 +239,27 @@ defmodule Mix.RebarTest do
         assert File.exists?("_build/dev/lib/rebar_dep/ebin/rebar_dep.beam")
         assert File.exists?("_build/dev/lib/git_rebar/ebin/git_rebar.beam")
 
-        # Assert we have no .compile.lock as a .compile.lock
+        # Assert we have no .mix/compile.lock as a .mix/compile.lock
         # means we check for the Elixir version on every command.
-        refute File.exists?("_build/dev/lib/rebar_dep/.compile.lock")
-        refute File.exists?("_build/dev/lib/git_rebar/.compile.lock")
+        refute File.exists?("_build/dev/lib/rebar_dep/.mix/compile.lock")
+        refute File.exists?("_build/dev/lib/git_rebar/.mix/compile.lock")
 
         assert Enum.any?(load_paths, &String.ends_with?(&1, "git_rebar/ebin"))
         assert Enum.any?(load_paths, &String.ends_with?(&1, "rebar_dep/ebin"))
+      end
+    end
+
+    test "applies variables from :system_env option when compiling dependencies for Rebar" do
+      Mix.Project.push(RebarAsDepWithEnv)
+
+      in_tmp "applies variables from system_env for Rebar", fn ->
+        expected_file = Path.join(tmp_path("rebar_dep"), "rebar-test-rebar")
+        File.rm(expected_file)
+
+        Mix.Tasks.Deps.Get.run([])
+        Mix.Tasks.Deps.Compile.run([])
+
+        assert {:ok, "rebar"} = File.read(expected_file)
       end
     end
 
@@ -233,8 +271,8 @@ defmodule Mix.RebarTest do
         assert_received {:mix_shell, :info, ["* Getting git_rebar " <> _]}
 
         Mix.Tasks.Deps.Compile.run([])
-        assert_received {:mix_shell, :write, ["===> Compiling git_rebar\n"]}
-        assert_received {:mix_shell, :write, ["===> Compiling rebar_dep\n"]}
+        assert_received {:mix_shell, :run, ["===> Compiling git_rebar\n"]}
+        assert_received {:mix_shell, :run, ["===> Compiling rebar_dep\n"]}
         assert :git_rebar.any_function() == :ok
         assert :rebar_dep.any_function() == :ok
 
@@ -246,13 +284,27 @@ defmodule Mix.RebarTest do
         assert File.exists?("_build/dev/lib/rebar_dep/ebin/rebar_dep.beam")
         assert File.exists?("_build/dev/lib/git_rebar/ebin/git_rebar.beam")
 
-        # Assert we have no .compile.lock as a .compile.lock
+        # Assert we have no .mix/compile.lock as a .mix/compile.lock
         # means we check for the Elixir version on every command.
-        refute File.exists?("_build/dev/lib/rebar_dep/.compile.lock")
-        refute File.exists?("_build/dev/lib/git_rebar/.compile.lock")
+        refute File.exists?("_build/dev/lib/rebar_dep/.mix/compile.lock")
+        refute File.exists?("_build/dev/lib/git_rebar/.mix/compile.lock")
 
         assert Enum.any?(load_paths, &String.ends_with?(&1, "git_rebar/ebin"))
         assert Enum.any?(load_paths, &String.ends_with?(&1, "rebar_dep/ebin"))
+      end
+    end
+
+    test "applies variables from :system_env option when compiling dependencies for rebar3" do
+      Mix.Project.push(Rebar3AsDep)
+
+      in_tmp "applies variables from system_env for rebar3", fn ->
+        expected_file = Path.join(tmp_path("rebar_dep"), "rebar-test-rebar3")
+        File.rm(expected_file)
+
+        Mix.Tasks.Deps.Get.run([])
+        Mix.Tasks.Deps.Compile.run([])
+
+        assert {:ok, "rebar3"} = File.read(expected_file)
       end
     end
 

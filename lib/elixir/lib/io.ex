@@ -27,9 +27,9 @@ defmodule IO do
     * `:stderr` - a shortcut for the named process `:standard_error`
       provided in Erlang
 
-  IO devices maintain their position, that means subsequent calls to any
-  reading or writing functions will start from the place when the device
-  was last accessed. Position of files can be changed using the
+  IO devices maintain their position, which means subsequent calls to any
+  reading or writing functions will start from the place where the device
+  was last accessed. The position of files can be changed using the
   `:file.position/2` function.
 
   """
@@ -214,12 +214,15 @@ defmodule IO do
   """
   @spec warn(chardata | String.Chars.t(), Exception.stacktrace()) :: :ok
   def warn(message, []) do
-    :elixir_errors.warn([to_chardata(message), ?\n])
+    :elixir_errors.bare_warn(nil, nil, [to_chardata(message), ?\n])
   end
 
-  def warn(message, stacktrace) when is_list(stacktrace) do
-    formatted = Enum.map_join(stacktrace, "\n  ", &Exception.format_stacktrace_entry(&1))
-    :elixir_errors.warn([to_chardata(message), ?\n, "  ", formatted, ?\n])
+  def warn(message, [{_, _, _, opts} | _] = stacktrace) do
+    formatted_trace = Enum.map_join(stacktrace, "\n  ", &Exception.format_stacktrace_entry(&1))
+    message = [to_chardata(message), ?\n, "  ", formatted_trace, ?\n]
+    line = opts[:line]
+    file = opts[:file]
+    :elixir_errors.bare_warn(line, file && List.to_string(file), message)
   end
 
   @doc """
