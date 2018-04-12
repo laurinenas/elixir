@@ -18,10 +18,13 @@ defmodule Mix.Tasks.Compile.App do
   The most commonly used options are:
 
     * `:extra_applications` - a list of Erlang/Elixir applications
-      that you want started before your application. For example,
-      Elixir's `:logger` or Erlang's `:crypto`. Mix guarantees
-      that any application given here and all of your runtime
-      dependencies are started before your application starts.
+      your application depends on which are not included in `:deps`
+      (usually defined in `deps/0` in your `mix.exs`). For example,
+      here you can declare a dependency on applications that ship with
+      Erlang or Elixir, like `:crypto` or `:logger`, but anything in
+      the code path works. Mix guarantees that these applications and
+      the rest of your runtime dependencies are started before your
+      application starts.
 
     * `:registered` - the name of all registered processes in the
       application. If your application defines a local GenServer
@@ -66,6 +69,12 @@ defmodule Mix.Tasks.Compile.App do
       applications, as only the primary application will be started. A process
       in an included application considers itself belonging to the
       primary application.
+
+    * `:maxT` - specifies the maximum time the application is allowed to run, in
+      milliseconds. Applications are stopped if `:maxT` is reached, and their
+      top-level supervisor terminated with reason `:normal`. This threshold is
+      technically valid in any resource file, but it is only effective for
+      applications with a callback module. Defaults to `:infinity`.
 
   Besides the options above, `.app` files also expect other options like
   `:modules` and `:vsn`, but these are automatically added by Mix.

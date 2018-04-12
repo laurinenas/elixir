@@ -88,7 +88,7 @@ defmodule URI do
       iex> URI.encode_query(query)
       "key=value+with+spaces"
 
-      iex> URI.encode_query %{key: [:a, :list]}
+      iex> URI.encode_query(%{key: [:a, :list]})
       ** (ArgumentError) encode_query/1 values cannot be lists, got: [:a, :list]
 
   """
@@ -258,7 +258,7 @@ defmodule URI do
   end
 
   @doc """
-  Percent-escapes all characters that require escaped in a string.
+  Percent-escapes all characters that require escaping in a string.
 
   This means reserved characters, such as `:` and `/`, and the so-
   called unreserved characters, which have the same meaning both
@@ -465,11 +465,27 @@ defmodule URI do
   @doc """
   Returns the string representation of the given `URI` struct.
 
+  ## Examples
+
       iex> URI.to_string(URI.parse("http://google.com"))
       "http://google.com"
 
       iex> URI.to_string(%URI{scheme: "foo", host: "bar.baz"})
       "foo://bar.baz"
+
+  Note that when creating this string representation, the `authority` will be
+  used if the host is `nil`. Otherwise, the `userinfo`, `host`, and `port` will
+  be used.
+
+      iex> URI.to_string(%URI{authority: "foo@example.com:80"})
+      "//foo@example.com:80"
+
+      iex> URI.to_string(%URI{userinfo: "bar", host: "example.org", port: 81})
+      "//bar@example.org:81"
+
+      iex> URI.to_string(%URI{authority: "foo@example.com:80",
+      ...>                    userinfo: "bar", host: "example.org", port: 81})
+      "//bar@example.org:81"
 
   """
   @spec to_string(t) :: binary

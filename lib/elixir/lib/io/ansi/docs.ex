@@ -22,6 +22,7 @@ defmodule IO.ANSI.Docs do
   Values for the color settings are strings with
   comma-separated ANSI values.
   """
+  @spec default_options() :: keyword
   def default_options do
     [
       enabled: true,
@@ -41,6 +42,7 @@ defmodule IO.ANSI.Docs do
 
   See `default_options/0` for docs on the supported options.
   """
+  @spec print_heading(String.t(), keyword) :: :ok
   def print_heading(heading, options \\ []) do
     IO.puts(IO.ANSI.reset())
     options = Keyword.merge(default_options(), options)
@@ -55,8 +57,9 @@ defmodule IO.ANSI.Docs do
   Prints the documentation body.
 
   In addition to the printing string, takes a set of options
-  defined in `default_options/1`.
+  defined in `default_options/0`.
   """
+  @spec print(String.t(), keyword) :: :ok
   def print(doc, options \\ []) do
     options = Keyword.merge(default_options(), options)
 
@@ -386,17 +389,22 @@ defmodule IO.ANSI.Docs do
   end
 
   defp generate_table_cell({{{col, length}, width}, :center}) do
+    ansi_diff = byte_size(col) - length
+    width = width + ansi_diff
+
     col
     |> String.pad_leading(div(width, 2) - div(length, 2) + length)
     |> String.pad_trailing(width + 1 - rem(width, 2))
   end
 
-  defp generate_table_cell({{{col, _length}, width}, :right}) do
-    String.pad_leading(col, width)
+  defp generate_table_cell({{{col, length}, width}, :right}) do
+    ansi_diff = byte_size(col) - length
+    String.pad_leading(col, width + ansi_diff)
   end
 
-  defp generate_table_cell({{{col, _length}, width}, :left}) do
-    String.pad_trailing(col, width)
+  defp generate_table_cell({{{col, length}, width}, :left}) do
+    ansi_diff = byte_size(col) - length
+    String.pad_trailing(col, width + ansi_diff)
   end
 
   defp table_line?(line) do

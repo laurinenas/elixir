@@ -45,9 +45,9 @@ defmodule List do
   slower as the list grows in size (linear time):
 
       iex> list = [1, 2, 3]
-      iex> [0 | list]   # fast
+      iex> [0 | list] # fast
       [0, 1, 2, 3]
-      iex> list ++ [4]  # slow
+      iex> list ++ [4] # slow
       [1, 2, 3, 4]
 
   The `Kernel` module contains many functions to manipulate lists
@@ -177,10 +177,10 @@ defmodule List do
 
   ## Examples
 
-      iex> List.foldl([5, 5], 10, fn(x, acc) -> x + acc end)
+      iex> List.foldl([5, 5], 10, fn x, acc -> x + acc end)
       20
 
-      iex> List.foldl([1, 2, 3, 4], 0, fn(x, acc) -> x - acc end)
+      iex> List.foldl([1, 2, 3, 4], 0, fn x, acc -> x - acc end)
       2
 
   """
@@ -195,7 +195,7 @@ defmodule List do
 
   ## Examples
 
-      iex> List.foldr([1, 2, 3, 4], 0, fn(x, acc) -> x - acc end)
+      iex> List.foldr([1, 2, 3, 4], 0, fn x, acc -> x - acc end)
       -2
 
   """
@@ -466,6 +466,7 @@ defmodule List do
       false
 
   """
+  @since "1.6.0"
   def ascii_printable?(list, counter \\ :infinity)
 
   def ascii_printable?(_, 0) do
@@ -647,6 +648,7 @@ defmodule List do
       {3, [1, 2]}
 
   """
+  @since "1.4.0"
   @spec pop_at(list, integer, any) :: {any, list}
   def pop_at(list, index, default \\ nil) when is_integer(index) do
     if index < 0 do
@@ -676,6 +678,7 @@ defmodule List do
       false
 
   """
+  @since "1.5.0"
   @spec starts_with?(list, list) :: boolean
   @spec starts_with?(list, []) :: true
   @spec starts_with?([], nonempty_list) :: false
@@ -862,6 +865,7 @@ defmodule List do
       [eq: [1], del: [4], eq: [2, 3], ins: [4]]
 
   """
+  @since "1.4.0"
   @spec myers_difference(list, list) :: [{:eq | :ins | :del, list}] | nil
   def myers_difference(list1, list2) when is_list(list1) and is_list(list2) do
     path = {0, 0, list1, list2, []}

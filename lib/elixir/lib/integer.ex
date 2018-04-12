@@ -72,6 +72,7 @@ defmodule Integer do
       -2
 
   """
+  @since "1.4.0"
   @spec mod(integer, neg_integer | pos_integer) :: integer
   def mod(dividend, divisor) do
     remainder = rem(dividend, divisor)
@@ -105,6 +106,7 @@ defmodule Integer do
       -50
 
   """
+  @since "1.4.0"
   @spec floor_div(integer, neg_integer | pos_integer) :: integer
   def floor_div(dividend, divisor) do
     if dividend * divisor < 0 and rem(dividend, divisor) != 0 do
@@ -300,7 +302,7 @@ defmodule Integer do
       iex> Integer.to_string(-100, 16)
       "-64"
 
-      iex> Integer.to_string(882681651, 36)
+      iex> Integer.to_string(882_681_651, 36)
       "ELIXIR"
 
   """
@@ -349,7 +351,7 @@ defmodule Integer do
       iex> Integer.to_charlist(-100, 16)
       '-64'
 
-      iex> Integer.to_charlist(882681651, 36)
+      iex> Integer.to_charlist(882_681_651, 36)
       'ELIXIR'
 
   """
@@ -387,6 +389,7 @@ defmodule Integer do
       0
 
   """
+  @since "1.5.0"
   @spec gcd(0, 0) :: 0
   @spec gcd(integer, integer) :: pos_integer
   def gcd(integer1, integer2) when is_integer(integer1) and is_integer(integer2) do

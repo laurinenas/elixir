@@ -19,6 +19,16 @@ defmodule Kernel.ErrorsTest do
                       'fn x, y \\\\ 1 -> x + y end'
   end
 
+  test "invalid fn" do
+    assert_eval_raise SyntaxError,
+                      "nofile:1: expected anonymous functions to be defined with -> inside: 'fn'",
+                      'fn 1 end'
+
+    assert_eval_raise SyntaxError,
+                      ~r"nofile:2: unexpected operator ->. If you want to define multiple clauses, ",
+                      'fn 1\n2 -> 3 end'
+  end
+
   test "invalid token" do
     assert_eval_raise SyntaxError,
                       "nofile:1: unexpected token: \"\u200B\" (column 7, codepoint U+200B)",
@@ -32,8 +42,18 @@ defmodule Kernel.ErrorsTest do
 
   test "invalid __CALLER__" do
     assert_eval_raise CompileError,
-                      "nofile:1: variable '__CALLER__' is unbound",
+                      "nofile:1: __CALLER__ is available only inside defmacro and defmacrop",
                       'defmodule Sample do def hello do __CALLER__ end end'
+  end
+
+  test "invalid __STACKTRACE__" do
+    assert_eval_raise CompileError,
+                      "nofile:1: __STACKTRACE__ is available only inside catch and rescue clauses of try expressions",
+                      'defmodule Sample do def hello do __STACKTRACE__ end end'
+
+    assert_eval_raise CompileError,
+                      "nofile:1: __STACKTRACE__ is available only inside catch and rescue clauses of try expressions",
+                      'defmodule Sample do try do raise "oops" rescue _ -> def hello do __STACKTRACE__ end end end'
   end
 
   test "invalid quoted token" do
@@ -94,18 +114,18 @@ defmodule Kernel.ErrorsTest do
     end
   end
 
-  test "invalid fn" do
-    assert_eval_raise SyntaxError,
-                      "nofile:1: expected clauses to be defined with -> inside: 'fn'",
-                      'fn 1 end'
-  end
-
   test "kw missing space" do
     msg = "nofile:1: keyword argument must be followed by space after: foo:"
 
     assert_eval_raise SyntaxError, msg, "foo:bar"
     assert_eval_raise SyntaxError, msg, "foo:+"
     assert_eval_raise SyntaxError, msg, "foo:+1"
+  end
+
+  test "invalid map start" do
+    assert_eval_raise SyntaxError,
+                      "nofile:1: expected %{ to define a map, got: %[",
+                      "{:ok, %[], %{}}"
   end
 
   test "sigil terminator" do
@@ -231,8 +251,8 @@ defmodule Kernel.ErrorsTest do
                       ~r"nofile:3: definitions with multiple clauses and default values require a header",
                       ~C'''
                       defmodule Kernel.ErrorsTest.ClauseWithDefaults1 do
-                        def hello(arg \\ 0), do: nil
-                        def hello(arg \\ 1), do: nil
+                        def hello(_arg \\ 0), do: nil
+                        def hello(_arg \\ 1), do: nil
                       end
                       '''
 
@@ -335,6 +355,12 @@ defmodule Kernel.ErrorsTest do
 
   test "name for defmodule" do
     assert_eval_raise CompileError, "nofile:1: invalid module name: 3", 'defmodule 1 + 2, do: 3'
+  end
+
+  test "@compile inline with undefined function" do
+    assert_eval_raise CompileError,
+                      "nofile:1: inlined function foo/1 undefined",
+                      'defmodule Test do @compile {:inline, foo: 1} end'
   end
 
   test "invalid unquote" do
@@ -575,32 +601,8 @@ defmodule Kernel.ErrorsTest do
                       'Module.eval_quoted Record, quote(do: 1), [], file: __ENV__.file'
   end
 
-  test "doc attributes format" do
-    message =
-      "expected the moduledoc attribute to be {line, doc} (where \"doc\" is " <>
-        "a binary, a boolean, or nil), got: \"Other\""
-
-    assert_raise ArgumentError, message, fn ->
-      defmodule DocAttributesFormat do
-        Module.put_attribute(__MODULE__, :moduledoc, "Other")
-      end
-    end
-
-    message =
-      "expected the moduledoc attribute to contain a binary, a boolean, or nil, got: :not_a_binary"
-
-    assert_raise ArgumentError, message, fn ->
-      defmodule AtSyntaxDocAttributesFormat do
-        @moduledoc :not_a_binary
-      end
-    end
-  end
-
   test "@on_load attribute format" do
-    message =
-      "expected the @on_load attribute to be an atom or a {atom, 0} tuple, got: \"not an atom\""
-
-    assert_raise ArgumentError, message, fn ->
+    assert_raise ArgumentError, ~r/should be an atom or a {atom, 0} tuple/, fn ->
       defmodule BadOnLoadAttribute do
         Module.put_attribute(__MODULE__, :on_load, "not an atom")
       end
@@ -693,6 +695,12 @@ defmodule Kernel.ErrorsTest do
     assert_eval_raise CompileError, "nofile:2: missing :do option in \"def\"", '''
     defmodule Kernel.ErrorsTest.BodyessFunctionWithGuard do
       def foo(n) when is_number(n)
+    end
+    '''
+
+    assert_eval_raise CompileError, "nofile:2: missing :do option in \"def\"", '''
+    defmodule Kernel.ErrorsTest.BodyessFunctionWithGuard do
+      def foo(n) when is_number(n), true
     end
     '''
   end

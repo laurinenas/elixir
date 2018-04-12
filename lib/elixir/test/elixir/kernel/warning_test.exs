@@ -22,98 +22,145 @@ defmodule Kernel.WarningTest do
     assert output =~ "nofile:2"
   end
 
+  test "operators formed by many of the same character followed by that character" do
+    output =
+      capture_err(fn ->
+        Code.eval_string("quote do: ....()")
+      end)
+
+    assert output =~ "found \"...\" followed by \".\", please use parens around \"...\" instead"
+  end
+
   test "unused variable" do
     output =
       capture_err(fn ->
-        Code.eval_string("""
+        # Note we use compile_string because eval_string does not emit unused vars warning
+        Code.compile_string("""
         defmodule Sample do
+          module = 1
           def hello(arg), do: nil
-
-          if true do
-            user = :warning
-          else
-            :nothing
-          end
         end
+        file = 2
+        file = 3
+        file
         """)
       end)
 
     assert output =~ "variable \"arg\" is unused"
-    assert output =~ "variable \"user\" is unused"
+    assert output =~ "variable \"module\" is unused"
+    assert output =~ "variable \"file\" is unused"
   after
     purge(Sample)
   end
 
-  test "unsafe variable" do
-    message = "variable \"x\" is unsafe"
+  test "nested unused variable" do
+    message = "variable \"x\" is unused"
 
-    capture_err(fn ->
-      Code.eval_string("""
-      case false do
-        true -> x = 1
-        _ -> 1
-      end
-      x
-      """)
-    end) =~ message
+    assert capture_err(fn ->
+             assert_raise CompileError, ~r/undefined function x/, fn ->
+               Code.eval_string("""
+               case false do
+                 true -> x = 1
+                 _ -> 1
+               end
+               x
+               """)
+             end
+           end) =~ message
 
-    capture_err(fn ->
-      Code.eval_string("""
-      false and (x = 1)
-      x
-      """)
-    end) =~ message
+    assert capture_err(fn ->
+             assert_raise CompileError, ~r/undefined function x/, fn ->
+               Code.eval_string("""
+               false and (x = 1)
+               x
+               """)
+             end
+           end) =~ message
 
-    capture_err(fn ->
-      Code.eval_string("""
-      true or (x = 1)
-      x
-      """)
-    end) =~ message
+    assert capture_err(fn ->
+             assert_raise CompileError, ~r/undefined function x/, fn ->
+               Code.eval_string("""
+               true or (x = 1)
+               x
+               """)
+             end
+           end) =~ message
 
-    capture_err(fn ->
-      Code.eval_string("""
-      if false do
-        x = 1
-      end
-      x
-      """)
-    end) =~ message
+    assert capture_err(fn ->
+             assert_raise CompileError, ~r/undefined function x/, fn ->
+               Code.eval_string("""
+               if false do
+                 x = 1
+               end
+               x
+               """)
+             end
+           end) =~ message
 
-    capture_err(fn ->
-      Code.eval_string("""
-      cond do
-        false -> x = 1
-        true -> 1
-      end
-      x
-      """)
-    end) =~ message
+    assert capture_err(fn ->
+             assert_raise CompileError, ~r/undefined function x/, fn ->
+               Code.eval_string("""
+               cond do
+                 false -> x = 1
+                 true -> 1
+               end
+               x
+               """)
+             end
+           end) =~ message
 
-    capture_err(fn ->
-      Code.eval_string("""
-      receive do
-        :foo -> x = 1
-      after
-        0 -> 1
-      end
-      x
-      """)
-    end) =~ message
+    assert capture_err(fn ->
+             assert_raise CompileError, ~r/undefined function x/, fn ->
+               Code.eval_string("""
+               receive do
+                 :foo -> x = 1
+               after
+                 0 -> 1
+               end
+               x
+               """)
+             end
+           end) =~ message
 
-    capture_err(fn ->
-      Code.eval_string("""
-      false && (x = 1)
-      x
-      """)
-    end) =~ message
+    assert capture_err(fn ->
+             assert_raise CompileError, ~r/undefined function x/, fn ->
+               Code.eval_string("""
+               false && (x = 1)
+               x
+               """)
+             end
+           end) =~ message
 
-    capture_err(fn ->
-      Code.eval_string("""
-      true || (x = 1)
-      x
-      """)
-    end) =~ message
+    assert capture_err(fn ->
+             assert_raise CompileError, ~r/undefined function x/, fn ->
+               Code.eval_string("""
+               true || (x = 1)
+               x
+               """)
+             end
+           end) =~ message
+
+    assert capture_err(fn ->
+             assert_raise CompileError, ~r/undefined function x/, fn ->
+               Code.eval_string("""
+               with true <- true do
+                 x = false
+               end
+               x
+               """)
+             end
+           end) =~ message
+
+    assert capture_err(fn ->
+             assert_raise CompileError, ~r/undefined function x/, fn ->
+               Code.eval_string("""
+               fn ->
+                 x = true
+               end
+               x
+               """)
+             end
+           end) =~ message
   end
 
   test "unused variable in redefined function in different file" do
@@ -249,18 +296,18 @@ defmodule Kernel.WarningTest do
            end) =~ "the underscored variable \"_arg\" appears more than once in a match"
   end
 
-  test "underscored variable on assign" do
+  test "underscored variable on use" do
     assert capture_err(fn ->
              Code.eval_string("""
-              defmodule Sample do
-               def fun(_var) do
-                 _var + 1
-               end
-             end
+             fn _var -> _var + 1 end
              """)
            end) =~ "the underscored variable \"_var\" is used after being set"
-  after
-    purge(Sample)
+
+    assert capture_err(fn ->
+             Code.eval_string("""
+             fn var!(_var, Foo) -> var!(_var, Foo) + 1 end
+             """)
+           end) =~ ""
   end
 
   test "unused function" do
@@ -504,20 +551,49 @@ defmodule Kernel.WarningTest do
   end
 
   test "length(list) == 0 in guard" do
-    assert capture_err(fn ->
-             Code.eval_string("""
-             defmodule Sample do
-               def list_case do
-                 v = []
-                 case v do
-                   _ when length(v) == 0 -> :ok
-                   _ -> :fail
-                 end
-               end
-             end
-             """)
-           end) =~
-             "\"length(v) == 0\" is discouraged since it has to traverse the whole list to check if it is empty or not"
+    error_message =
+      capture_err(fn ->
+        Code.eval_string("""
+        defmodule Sample do
+          def list_case do
+            v = []
+            case v do
+              _ when length(v) == 0 -> :ok
+              _ -> :fail
+            end
+          end
+        end
+        """)
+      end)
+
+    assert error_message =~ "do not use \"length(v) == 0\" to check if a list is empty"
+
+    assert error_message =~
+             "Prefer to pattern match on an empty list or use \"v == []\" as a guard"
+  after
+    purge(Sample)
+  end
+
+  test "length(list) > 0 in guard" do
+    error_message =
+      capture_err(fn ->
+        Code.eval_string("""
+        defmodule Sample do
+          def list_case do
+            v = []
+            case v do
+              _ when length(v) > 0 -> :ok
+              _ -> :fail
+            end
+          end
+        end
+        """)
+      end)
+
+    assert error_message =~ "do not use \"length(v) > 0\" to check if a list is not empty"
+
+    assert error_message =~
+             "Prefer to pattern match on a non-empty list, such as [_ | _], or use \"v != []\" as a guard"
   after
     purge(Sample)
   end
@@ -717,6 +793,32 @@ defmodule Kernel.WarningTest do
     purge(Sample)
   end
 
+  test "parse transform" do
+    assert capture_err(fn ->
+             Code.eval_string("""
+             defmodule Sample do
+               @compile {:parse_transform, :ms_transform}
+             end
+             """)
+           end) =~ "@compile {:parse_transform, :ms_transform} is deprecated"
+  after
+    purge(Sample)
+  end
+
+  test "@compile inline no warning for unreachable function" do
+    refute capture_err(fn ->
+             Code.eval_string("""
+             defmodule Sample do
+               @compile {:inline, foo: 1}
+
+               defp foo(_), do: :ok
+             end
+             """)
+           end) =~ "inlined function foo/1 undefined"
+  after
+    purge(Sample)
+  end
+
   test "in guard empty list" do
     assert capture_err(fn ->
              Code.eval_string("""
@@ -839,7 +941,7 @@ defmodule Kernel.WarningTest do
                @behaviour UndefinedBehaviour
              end
              """)
-           end) =~ "module UndefinedBehaviour does not exist (in module Sample)"
+           end) =~ "@behaviour UndefinedBehaviour does not exist (in module Sample)"
   after
     purge(Sample)
   end
@@ -947,7 +1049,7 @@ defmodule Kernel.WarningTest do
   test "warning on codepoint escape" do
     assert capture_err(fn ->
              Code.eval_string("? ")
-           end) =~ "found ? followed by codepoint 0x20 (space), please use \\s instead"
+           end) =~ "found ? followed by codepoint 0x20 (space), please use ?\\s instead"
   end
 
   test "duplicated docs" do
@@ -959,7 +1061,7 @@ defmodule Kernel.WarningTest do
           @doc "Another"
           def foo, do: :ok
 
-          @doc false
+          Module.eval_quoted(__MODULE__, quote(do: @doc false))
           @doc "Doc"
           def bar, do: :ok
         end
@@ -973,19 +1075,62 @@ defmodule Kernel.WarningTest do
     purge(Sample)
   end
 
-  test "typedoc on typep" do
-    assert capture_err(fn ->
-             Code.eval_string("""
-             defmodule Sample do
-               @typedoc "Something"
-               @typep priv :: any
-               @spec foo() :: priv
-               def foo(), do: nil
-             end
-             """)
-           end) =~ "type priv/0 is private, @typedoc's are always discarded for private types"
-  after
-    purge(Sample)
+  describe "typespecs" do
+    test "typedoc on typep" do
+      assert capture_err(fn ->
+               Code.eval_string("""
+               defmodule Sample do
+                 @typedoc "Something"
+                 @typep priv :: any
+                 @spec foo() :: priv
+                 def foo(), do: nil
+               end
+               """)
+             end) =~ "type priv/0 is private, @typedoc's are always discarded for private types"
+    after
+      purge(Sample)
+    end
+
+    test "discouraged types" do
+      message =
+        capture_err(fn ->
+          Code.eval_string("""
+          defmodule Sample do
+            @type foo :: string()
+            @type bar :: nonempty_string()
+          end
+          """)
+        end)
+
+      string_discouraged =
+        "string() type use is discouraged. " <>
+          "For character lists, use charlist() type, for strings, String.t()\n"
+
+      nonempty_string_discouraged =
+        "nonempty_string() type use is discouraged. " <>
+          "For non-empty character lists, use nonempty_charlist() type, for strings, String.t()\n"
+
+      assert message =~ string_discouraged
+      assert message =~ nonempty_string_discouraged
+    after
+      purge(Sample)
+    end
+
+    test "unreachable specs" do
+      message =
+        capture_err(fn ->
+          Code.eval_string("""
+          defmodule Sample do
+            defp my_fun(x), do: x
+            @spec my_fun(integer) :: integer
+          end
+          """)
+        end)
+
+      assert message != ""
+    after
+      purge(Sample)
+    end
   end
 
   test "attribute with no use" do
@@ -1098,13 +1243,13 @@ defmodule Kernel.WarningTest do
   end
 
   test "unused variable in defguard" do
-    capture_err(fn ->
-      Code.eval_string("""
-      defmodule Sample do
-        defguard foo(bar, baz) when bar
-      end
-      """)
-    end) =~ "variable \"baz\" is unused"
+    assert capture_err(fn ->
+             Code.eval_string("""
+             defmodule Sample do
+               defguard foo(bar, baz) when bar
+             end
+             """)
+           end) =~ "variable \"baz\" is unused"
   after
     purge(Sample)
   end
@@ -1135,67 +1280,61 @@ defmodule Kernel.WarningTest do
   end
 
   test "defguard overriding defmacro" do
-    capture_err(fn ->
-      Code.eval_string("""
-      defmodule Sample do
-        defmacro foo(bar), do: bar == :bar
-        defguard foo(baz) when baz == :baz
-      end
-      """)
-    end) =~ "this clause cannot match because a previous clause at line 2 always matches"
+    assert capture_err(fn ->
+             Code.eval_string("""
+             defmodule Sample do
+               defmacro foo(bar), do: bar == :bar
+               defguard foo(baz) when baz == :baz
+             end
+             """)
+           end) =~ "this clause cannot match because a previous clause at line 2 always matches"
   after
     purge(Sample)
   end
 
   test "defmacro overriding defguard" do
-    capture_err(fn ->
-      Code.eval_string("""
-      defmodule Sample do
-        defguard foo(baz) when baz == :baz
-        defmacro foo(bar), do: bar == :bar
-      end
-      """)
-    end) =~ "this clause cannot match because a previous clause at line 2 always matches"
-  after
-    purge(Sample)
-  end
-
-  test "defguardp overriding defmacrop" do
-    capture_err(fn ->
-      Code.eval_string("""
-      defmodule Sample do
-        defmacrop foo(bar), do: bar == :bar
-        defguardp foo(baz) when baz == :baz
-      end
-      """)
-    end) =~ "this clause cannot match because a previous clause at line 2 always matches"
-  after
-    purge(Sample)
-  end
-
-  test "defmacrop overriding defguardp" do
-    capture_err(fn ->
-      Code.eval_string("""
-      defmodule Sample do
-      defguardp foo(baz) when baz == :baz
-        defmacrop foo(bar), do: bar == :bar
-      end
-      """)
-    end) =~ "this clause cannot match because a previous clause at line 2 always matches"
+    assert capture_err(fn ->
+             Code.eval_string("""
+             defmodule Sample do
+               defguard foo(baz) when baz == :baz
+               defmacro foo(bar), do: bar == :bar
+             end
+             """)
+           end) =~ "this clause cannot match because a previous clause at line 2 always matches"
   after
     purge(Sample)
   end
 
   test "defguard needs an implementation" do
-    capture_err(fn ->
-      Code.eval_string("""
-      defmodule Sample do
-        defguard foo(bar)
-      end
-      """)
-    end) =~ "implementation not provided for predefined defguard"
+    assert capture_err(fn ->
+             Code.eval_string("""
+             defmodule Sample do
+               defguard foo(bar)
+             end
+             """)
+           end) =~ "implementation not provided for predefined defmacro foo/1"
   after
     purge(Sample)
+  end
+
+  test "struct comparisons" do
+    expressions = [
+      ~s(~N"2018-01-28 12:00:00"),
+      ~s(~T"12:00:00"),
+      ~s(~D"2018-01-28"),
+      "%File.Stat{}"
+    ]
+
+    for op <- [:<, :>, :<=, :>=],
+        expression <- expressions do
+      assert capture_err(fn ->
+               Code.eval_string("x #{op} #{expression}", x: 1)
+             end) =~ "invalid comparison with struct literal #{expression}"
+
+      assert capture_err(fn ->
+               Code.eval_string("#{expression} #{op} x", x: 1)
+             end) =~ "invalid comparison with struct literal #{expression}"
+    end
   end
 
   defp purge(list) when is_list(list) do

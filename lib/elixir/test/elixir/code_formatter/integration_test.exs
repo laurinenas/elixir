@@ -345,20 +345,20 @@ defmodule Code.Formatter.IntegrationTest do
     """
   end
 
-  test "no parens keywords right on line limit" do
+  test "no parens keywords at the end of the line" do
     bad = """
     defmodule Mod do
-      defp token_list_downcase(<<char, rest::binary>>, acc) when is_whitespace(char) or is_comma(char), do: token_list_downcase(rest, acc)
-      defp token_list_downcase(some_really_long_arg11, some_really_long_arg22, some_really_long_arg33), do: token_list_downcase(rest, acc)
+      def token_list_downcase(<<char, rest::binary>>, acc) when is_whitespace(char) or is_comma(char), do: token_list_downcase(rest, acc)
+      def token_list_downcase(some_really_long_arg11, some_really_long_arg22, some_really_long_arg33), do: token_list_downcase(rest, acc)
     end
     """
 
     assert_format bad, """
     defmodule Mod do
-      defp token_list_downcase(<<char, rest::binary>>, acc) when is_whitespace(char) or is_comma(char),
+      def token_list_downcase(<<char, rest::binary>>, acc) when is_whitespace(char) or is_comma(char),
         do: token_list_downcase(rest, acc)
 
-      defp token_list_downcase(some_really_long_arg11, some_really_long_arg22, some_really_long_arg33),
+      def token_list_downcase(some_really_long_arg11, some_really_long_arg22, some_really_long_arg33),
         do: token_list_downcase(rest, acc)
     end
     """
@@ -382,6 +382,25 @@ defmodule Code.Formatter.IntegrationTest do
     assert_format bad, good, line_length: 18
   end
 
+  test "do at the end of the line with single argument" do
+    bad = """
+    defmodule Location do
+      def new(line, column) when is_integer(line) and line >= 0 and is_integer(column) and column >= 0 do
+        %{column: column, line: line}
+      end
+    end
+    """
+
+    assert_format bad, """
+    defmodule Location do
+      def new(line, column)
+          when is_integer(line) and line >= 0 and is_integer(column) and column >= 0 do
+        %{column: column, line: line}
+      end
+    end
+    """
+  end
+
   test "tuples as trees" do
     bad = """
     @document Parser.parse(
@@ -399,23 +418,26 @@ defmodule Code.Formatter.IntegrationTest do
 
     assert_format bad, """
     @document Parser.parse(
-                {"html", [], [
-                  {"head", [], []},
-                  {"body", [], [
-                    {"div", [], [
-                      {"p", [], ["1"]},
-                      {"p", [], ["2"]},
-                      {"div", [], [{"p", [], ["3"]}, {"p", [], ["4"]}]},
-                      {"p", [], ["5"]}
+                {"html", [],
+                 [
+                   {"head", [], []},
+                   {"body", [],
+                    [
+                      {"div", [],
+                       [
+                         {"p", [], ["1"]},
+                         {"p", [], ["2"]},
+                         {"div", [], [{"p", [], ["3"]}, {"p", [], ["4"]}]},
+                         {"p", [], ["5"]}
+                       ]}
                     ]}
-                  ]}
-                ]}
+                 ]}
               )
     """
   end
 
-  test "first argument in a call without parens" do
-    bad = """
+  test "first argument in a call without parens with comments" do
+    assert_same """
     with bar ::
            :ok
            | :invalid
@@ -423,28 +445,58 @@ defmodule Code.Formatter.IntegrationTest do
            | :other
     """
 
-    assert_format bad, """
-    # | :unknown
-    with bar ::
-           :ok
-           | :invalid
-           | :other
-    """
-
-    bad = """
+    assert_same """
     @spec bar ::
             :ok
             | :invalid
             # | :unknown
             | :other
     """
+  end
+
+  test "capture with operators" do
+    assert_same """
+    "this works" |> (&String.upcase/1) |> (&String.downcase/1)
+    """
+
+    assert_same """
+    "this works" || (&String.upcase/1) || (&String.downcase/1)
+    """
+
+    assert_same """
+    "this works" == (&String.upcase/1) == (&String.downcase/1)
+    """
+
+    bad = """
+    "this works" = (&String.upcase/1) = (&String.downcase/1)
+    """
 
     assert_format bad, """
-    # | :unknown
-    @spec bar ::
-            :ok
-            | :invalid
-            | :other
+    "this works" = (&String.upcase/1) = &String.downcase/1
+    """
+
+    bad = """
+    "this works" ++ (&String.upcase/1) ++ (&String.downcase/1)
+    """
+
+    assert_format bad, """
+    "this works" ++ (&String.upcase/1) ++ &String.downcase/1
+    """
+
+    bad = """
+    "this works" | (&String.upcase/1) | (&String.downcase/1)
+    """
+
+    assert_format bad, """
+    "this works" | (&String.upcase/1) | &String.downcase/1
+    """
+
+    bad = ~S"""
+    "this works" \\ (&String.upcase/1) \\ (&String.downcase/1)
+    """
+
+    assert_format bad, ~S"""
+    "this works" \\ &String.upcase/1 \\ &String.downcase/1
     """
   end
 end

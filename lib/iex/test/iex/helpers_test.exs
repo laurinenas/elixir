@@ -142,8 +142,7 @@ defmodule IEx.HelpersTest do
   describe "open" do
     @iex_helpers "iex/lib/iex/helpers.ex"
     @elixir_erl "elixir/src/elixir.erl"
-    {:ok, vsn} = :application.get_key(:stdlib, :vsn)
-    @lists_erl "lib/stdlib-#{vsn}/src/lists.erl"
+    @lists_erl "#{:code.lib_dir(:stdlib, :src)}/lists.erl"
     @httpc_erl "src/http_client/httpc.erl"
     @editor System.get_env("ELIXIR_EDITOR")
 
@@ -195,30 +194,38 @@ defmodule IEx.HelpersTest do
                ~r/#{@elixir_erl}:\d+$/
     end
 
-    test "opens OTP lists module" do
-      assert capture_iex("open(:lists)") |> maybe_trim_quotes() =~ ~r/#{@lists_erl}:\d+$/
+    # Some installations remove the source file once Erlang is compiled. See #7348.
+    if File.regular?(@lists_erl) do
+      test "opens OTP lists module" do
+        assert capture_iex("open(:lists)") |> maybe_trim_quotes() =~ ~r/#{@lists_erl}:\d+$/
+      end
+
+      test "opens OTP lists module.function" do
+        assert capture_iex("open(:lists.reverse)") |> maybe_trim_quotes() =~
+                 ~r/#{@lists_erl}:\d+$/
+      end
+
+      test "opens OTP lists module.function/arity" do
+        assert capture_iex("open(:lists.reverse/1)") |> maybe_trim_quotes() =~
+                 ~r/#{@lists_erl}:\d+$/
+      end
     end
 
-    test "opens OTP lists module.function" do
-      assert capture_iex("open(:lists.reverse)") |> maybe_trim_quotes() =~ ~r/#{@lists_erl}:\d+$/
-    end
+    # Some installations remove the source file once Erlang is compiled. See #7348.
+    if File.regular?(@httpc_erl) do
+      test "opens OTP httpc module" do
+        assert capture_iex("open(:httpc)") |> maybe_trim_quotes() =~ ~r/#{@httpc_erl}:\d+$/
+      end
 
-    test "opens OTP lists module.function/arity" do
-      assert capture_iex("open(:lists.reverse/1)") |> maybe_trim_quotes() =~
-               ~r/#{@lists_erl}:\d+$/
-    end
+      test "opens OTP httpc module.function" do
+        assert capture_iex("open(:httpc.request)") |> maybe_trim_quotes() =~
+                 ~r/#{@httpc_erl}:\d+$/
+      end
 
-    test "opens OTP httpc module" do
-      assert capture_iex("open(:httpc)") |> maybe_trim_quotes() =~ ~r/#{@httpc_erl}:\d+$/
-    end
-
-    test "opens OTP httpc module.function" do
-      assert capture_iex("open(:httpc.request)") |> maybe_trim_quotes() =~ ~r/#{@httpc_erl}:\d+$/
-    end
-
-    test "opens OTP httpc module.function/arity" do
-      assert capture_iex("open(:httpc.request/1)") |> maybe_trim_quotes() =~
-               ~r/#{@httpc_erl}:\d+$/
+      test "opens OTP httpc module.function/arity" do
+        assert capture_iex("open(:httpc.request/1)") |> maybe_trim_quotes() =~
+                 ~r/#{@httpc_erl}:\d+$/
+      end
     end
 
     test "errors OTP preloaded module" do
@@ -332,7 +339,7 @@ defmodule IEx.HelpersTest do
       assert capture_io(fn -> h(:timer.sleep() / 1) end) == """
              * :timer.sleep/1
 
-                 @spec sleep(time) :: :ok when Time: timeout(), time: var
+               @spec sleep(time) :: :ok when Time: timeout(), time: var
 
              Documentation is not available for non-Elixir modules. Showing only specs.
              """
@@ -340,30 +347,30 @@ defmodule IEx.HelpersTest do
       assert capture_io(fn -> h(:timer.send_interval()) end) == """
              * :timer.send_interval/3
 
-                 @spec send_interval(time, pid, message) :: {:ok, tRef} | {:error, reason}
-                       when Time: time(),
-                            Pid: pid() | (regName :: atom()),
-                            Message: term(),
-                            TRef: tref(),
-                            Reason: term(),
-                            time: var,
-                            pid: var,
-                            message: var,
-                            tRef: var,
-                            reason: var
+               @spec send_interval(time, pid, message) :: {:ok, tRef} | {:error, reason}
+                     when Time: time(),
+                          Pid: pid() | (regName :: atom()),
+                          Message: term(),
+                          TRef: tref(),
+                          Reason: term(),
+                          time: var,
+                          pid: var,
+                          message: var,
+                          tRef: var,
+                          reason: var
 
              Documentation is not available for non-Elixir modules. Showing only specs.
              * :timer.send_interval/2
 
-                 @spec send_interval(time, message) :: {:ok, tRef} | {:error, reason}
-                       when Time: time(),
-                            Message: term(),
-                            TRef: tref(),
-                            Reason: term(),
-                            time: var,
-                            message: var,
-                            tRef: var,
-                            reason: var
+               @spec send_interval(time, message) :: {:ok, tRef} | {:error, reason}
+                     when Time: time(),
+                          Message: term(),
+                          TRef: tref(),
+                          Reason: term(),
+                          time: var,
+                          message: var,
+                          tRef: var,
+                          reason: var
 
              Documentation is not available for non-Elixir modules. Showing only specs.
              """
@@ -385,7 +392,7 @@ defmodule IEx.HelpersTest do
       c_h = "* def c(files, path \\\\ :in_memory)\n\nCompiles the given files."
 
       eq_h =
-        "* def ==(left, right)\n\n    @spec term() == term() :: boolean()\n\nReturns `true` if the two items are equal.\n\n"
+        "* def ==(left, right)\n\n  @spec term() == term() :: boolean()\n\nReturns `true` if the two items are equal.\n\n"
 
       def_h =
         "* defmacro def(call, expr \\\\ nil)\n\nDefines a function with the given name and body."
@@ -480,12 +487,12 @@ defmodule IEx.HelpersTest do
 
         assert capture_io(fn -> h(MyBehaviour.first()) end) == """
                No documentation for function MyBehaviour.first was found, but there is a callback with the same name.
-               You can view callback documentations with the b/1 helper.\n
+               You can view callback documentation with the b/1 helper.\n
                """
 
         assert capture_io(fn -> h(MyBehaviour.second() / 2) end) == """
                No documentation for function MyBehaviour.second/2 was found, but there is a callback with the same name.
-               You can view callback documentations with the b/1 helper.\n
+               You can view callback documentation with the b/1 helper.\n
                """
 
         assert capture_io(fn -> h(MyBehaviour.second() / 3) end) ==
@@ -493,6 +500,33 @@ defmodule IEx.HelpersTest do
       end)
     after
       cleanup_modules([Impl, MyBehaviour])
+    end
+
+    test "prints type documentation when function docs are not available" do
+      content = """
+      defmodule MyTypes do
+        @type first() :: any()
+        @type second(a, b) :: {a, b}
+      end
+      """
+
+      filename = "my_types.ex"
+
+      with_file(filename, content, fn ->
+        assert c(filename, ".") == [MyTypes]
+
+        assert capture_io(fn -> h(MyTypes.first()) end) == """
+               No documentation for function MyTypes.first was found, but there is a type with the same name.
+               You can view type documentation with the t/1 helper.\n
+               """
+
+        assert capture_io(fn -> h(MyTypes.second() / 2) end) == """
+               No documentation for function MyTypes.second/2 was found, but there is a type with the same name.
+               You can view type documentation with the t/1 helper.\n
+               """
+      end)
+    after
+      cleanup_modules([MyTypes])
     end
 
     test "prints modules compiled without docs" do
@@ -513,7 +547,7 @@ defmodule IEx.HelpersTest do
         assert capture_io(fn -> h(Sample.foo() / 1) end) == """
                * Sample.foo/1
 
-                   @spec foo(any()) :: any()
+                 @spec foo(any()) :: any()
 
                Module was compiled without docs. Showing only specs.
                """
@@ -571,6 +605,31 @@ defmodule IEx.HelpersTest do
       assert capture_io(fn -> b(Exception.message() / 1) end) ==
                "@callback message(t()) :: String.t()\n\n"
     end
+
+    test "prints optional callback" do
+      filename = "optional_callbacks.ex"
+
+      content = """
+      defmodule OptionalCallbacks do
+        @doc "callback"
+        @callback optional_1(:foo) :: integer
+        @optional_callbacks optional_1: 1
+      end
+      """
+
+      with_file(filename, content, fn ->
+        assert c(filename, ".") == [OptionalCallbacks]
+
+        assert capture_io(fn -> b(OptionalCallbacks) end) =~ """
+               @callback optional_1(:foo) :: integer()
+
+               @optional_callbacks [optional_1: 1]
+
+               """
+      end)
+    after
+      cleanup_modules([OptionalCallbacks])
+    end
   end
 
   describe "t" do
@@ -589,7 +648,7 @@ defmodule IEx.HelpersTest do
       assert "@type t() :: " <> _ = capture_io(fn -> t(Enum.t()) end)
       assert capture_io(fn -> t(Enum.t()) end) == capture_io(fn -> t(Enum.t() / 0) end)
 
-      assert "@opaque t(value)\n\n@type t() :: t(term())\n\n" =
+      assert "@type t() :: t(term())\n\n@opaque t(value)\n\n" =
                capture_io(fn -> t(MapSet.t()) end)
 
       assert capture_io(fn -> t(URI.t()) end) == capture_io(fn -> t(URI.t() / 0) end)
@@ -730,6 +789,14 @@ defmodule IEx.HelpersTest do
 
       assert "[1, 2, 3]" ==
                capture_iex("import_if_available Integer, only: [digits: 1]; digits 123")
+    end
+  end
+
+  describe "use_if_available" do
+    test "uses a module only if available" do
+      assert "nil" == capture_iex("use_if_available NoSuchModule")
+      assert "1" == capture_iex("use_if_available Bitwise; 1 &&& 1")
+      assert "1" == capture_iex("use_if_available Bitwise, only_operators: true; 1 &&& 1")
     end
   end
 

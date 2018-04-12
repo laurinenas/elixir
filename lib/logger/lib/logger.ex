@@ -128,7 +128,14 @@ defmodule Logger do
       to *sync mode*, to apply backpressure to the clients.
       `Logger` will return to *async mode* once the number of messages
       in the queue is reduced to `sync_threshold * 0.75` messages.
-      Defaults to 20 messages.
+      Defaults to 20 messages. `:sync_threshold` can be set to `0` to force *sync mode*.
+
+    * `:discard_threshold` - if the `Logger` manager has more than
+      `:discard_threshold` messages in its queue, `Logger` will change
+      to *discard mode* and messages will be discarded directly in the
+      clients. `Logger` will return to *sync mode* once the number of
+      messages in the queue is reduced to `discard_threshold * 0.75`
+      messages. Defaults to 500 messages.
 
     * `:translator_inspect_opts` - when translating OTP reports and
       errors, the last message and state must be inspected in the
@@ -159,21 +166,25 @@ defmodule Logger do
       in Erlang syntax until the Logger application kicks in and
       uninstalls SASL's logger in favor of its own. Defaults to `false`.
 
-    * `:discard_threshold_for_error_logger` - a value that, when
-      reached, triggers the error logger to discard messages. This
-      value must be a positive number that represents the maximum
-      number of messages accepted per second. Once above this
-      threshold, the [`:error_logger`](http://erlang.org/doc/man/error_logger.html)
-      enters discard mode for the remainder of that second. Defaults to 500 messages.
+    * `:discard_threshold_for_error_logger` - if `:error_logger` has more than
+      `discard_threshold` messages in its inbox, messages will be dropped
+      until the message queue goes down to `discard_threshold * 0.75`
+      entries. The threshold will be checked once again after 10% of threshold
+      messages are processed, to avoid messages from being constantly dropped.
+      For example, if the threshold is 500 (the default) and the inbox has
+      600 messages, 225 messages will dropped, bringing the inbox down to
+      375 (0.75 * threshold) entries and 50 (0.1 * threshold) messages will
+      be processed before the threshold is checked once again.
 
-  For example, to configure `Logger` to redirect all [`:error_logger`](http://erlang.org/doc/man/error_logger.html)
-  messages using a `config/config.exs` file:
+  For example, to configure `Logger` to redirect all
+  [`:error_logger`](http://erlang.org/doc/man/error_logger.html) messages
+  using a `config/config.exs` file:
 
       config :logger,
         handle_otp_reports: true,
         handle_sasl_reports: true
 
-  Furthermore, `Logger` allows messages sent by OTP's [`:error_logger`](http://erlang.org/doc/man/error_logger.html)
+  Furthermore, `Logger` allows messages sent by OTP's `:error_logger`
   to be translated into an Elixir format via translators. Translators
   can be dynamically added at any time with the `add_translator/1`
   and `remove_translator/1` APIs. Check `Logger.Translator` for more
@@ -265,12 +276,8 @@ defmodule Logger do
   with the `:format` option.
 
   You may set `:format` to either a string or a `{module, function}` tuple if
-  you wish to provide your own format function. The `{module, function}` will be
-  invoked with the log level, the message, the current timestamp and the
-  metadata.
-
-  Here is an example of how to configure the `:console` backend in a
-  `config/config.exs` file:
+  you wish to provide your own format function. Here is an example of how to
+  configure the `:console` backend in a `config/config.exs` file:
 
       config :logger, :console,
         format: {MyConsoleLogger, :format}
@@ -286,16 +293,26 @@ defmodule Logger do
 
   It is extremely important that **the formatting function does not fail**, as
   it will bring that particular logger instance down, causing your system to
-  temporarily lose messages. If necessary, wrap the function in a "rescue" and
+  temporarily lose messages. If necessary, wrap the function in a `rescue` and
   log a default message instead:
 
       defmodule MyConsoleLogger do
         def format(level, message, timestamp, metadata) do
           # Custom formatting logic...
         rescue
-          _ -> "could not format: #{inspect {level, message, metadata}}"
+          _ -> "could not format: #{inspect({level, message, metadata}})"
         end
       end
+
+  The `{module, function}` will be invoked with four arguments:
+
+    * the log level: an atom
+    * the message: this is usually chardata, but in some cases it may not be.
+      Since the formatting function should *never* fail, you need to prepare for
+      the message being anything (and do something like the `rescue` in the example
+      above)
+    * the current timestamp: a term of type `t:Logger.Formatter.time/0`
+    * the medatata: a keyword list
 
   You can read more about formatting in `Logger.Formatter`.
 
@@ -495,7 +512,9 @@ defmodule Logger do
     :sync_threshold,
     :truncate,
     :level,
-    :utc_log
+    :utc_log,
+    :discard_threshold,
+    :translator_inspect_opts
   ]
   @spec configure(keyword) :: :ok
   def configure(options) do
@@ -594,13 +613,14 @@ defmodule Logger do
   """
   @spec bare_log(level, message | (() -> message | {message, keyword}), keyword) ::
           :ok | {:error, :noproc} | {:error, term}
-  def bare_log(level, chardata_or_fun, metadata \\ []) when level in @levels and is_list(metadata) do
+  def bare_log(level, chardata_or_fun, metadata \\ [])
+      when level in @levels and is_list(metadata) do
     case __metadata__() do
       {true, pdict} ->
         %{mode: mode, truncate: truncate, level: min_level, utc_log: utc_log?} =
           Logger.Config.__data__()
 
-        if compare_levels(level, min_level) != :lt do
+        if compare_levels(level, min_level) != :lt and mode != :discard do
           metadata = [pid: self()] ++ Keyword.merge(pdict, metadata)
           {message, metadata} = normalize_message(chardata_or_fun, metadata)
           truncated = truncate(message, truncate)
@@ -706,8 +726,8 @@ defmodule Logger do
     %{module: module, function: fun, file: file, line: line} = caller
 
     caller =
-      compile_time_application() ++
-        [module: module, function: form_fa(fun), file: file, line: line]
+      compile_time_application_and_file(file) ++
+        [module: module, function: form_fa(fun), line: line]
 
     metadata =
       if Keyword.keyword?(metadata) do
@@ -723,11 +743,11 @@ defmodule Logger do
     end
   end
 
-  defp compile_time_application do
+  defp compile_time_application_and_file(file) do
     if app = Application.get_env(:logger, :compile_time_application) do
-      [application: app]
+      [application: app, file: Path.relative_to_cwd(file)]
     else
-      []
+      [file: file]
     end
   end
 
@@ -737,7 +757,12 @@ defmodule Logger do
     if compare_levels(level, min_level) != :lt do
       macro_log(level, data, metadata, caller)
     else
-      handle_unused_variable_warnings(data, caller)
+      # We wrap the contents in an anonymous function
+      # to avoid unused variable warnings.
+      quote do
+        _ = fn -> {unquote(data), unquote(metadata)} end
+        :ok
+      end
     end
   end
 
@@ -762,31 +787,4 @@ defmodule Logger do
 
   defp notify(:sync, msg), do: :gen_event.sync_notify(Logger, msg)
   defp notify(:async, msg), do: :gen_event.notify(Logger, msg)
-
-  defp handle_unused_variable_warnings(data, caller) do
-    # We collect all the names of variables (leaving `data` unchanged) with a
-    # scope of `nil` (as we don't warn for variables with a different scope
-    # anyways). We only want the variables that figure in `caller.vars`, as the
-    # AST for calls to local 0-arity functions without parens is the same as the
-    # AST for variables.
-    {^data, logged_vars} =
-      Macro.postwalk(data, [], fn
-        {name, _meta, nil} = var, acc when is_atom(name) ->
-          if {name, nil} in caller.vars, do: {var, [name | acc]}, else: {var, acc}
-
-        ast, acc ->
-          {ast, acc}
-      end)
-
-    assignments =
-      logged_vars
-      |> Enum.reverse()
-      |> Enum.uniq()
-      |> Enum.map(&quote(do: _ = unquote(Macro.var(&1, nil))))
-
-    quote do
-      unquote_splicing(assignments)
-      :ok
-    end
-  end
 end

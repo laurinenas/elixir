@@ -175,8 +175,9 @@ defmodule Exception do
   so on.
 
   If the exception module implements the optional `c:blame/2`
-  callbak, it will be invoked to perform the computation.
+  callback, it will be invoked to perform the computation.
   """
+  @since "1.5.0"
   @spec blame(:error, any, stacktrace) :: {t, stacktrace}
   @spec blame(non_error_kind, payload, stacktrace) :: {payload, stacktrace} when payload: var
   def blame(kind, error, stacktrace)
@@ -209,6 +210,7 @@ defmodule Exception do
   Note this functionality requires Erlang/OTP 20, otherwise `:error`
   is always returned.
   """
+  @since "1.5.0"
   @spec blame_mfa(module, function, args :: [term]) ::
           {:ok, :def | :defp | :defmacro | :defmacrop, [{args :: [term], guards :: [term]}]}
           | :error
@@ -229,7 +231,7 @@ defmodule Exception do
          {_, kind, _, clauses} <- List.keyfind(defs, {function, arity}, 0) do
       clauses =
         for {meta, ex_args, guards, _block} <- clauses do
-          scope = :elixir_erl.definition_scope(meta, "nofile")
+          scope = :elixir_erl.scope(meta)
 
           {erl_args, scope} =
             :elixir_erl_clauses.match(&:elixir_erl_pass.translate_args/2, ex_args, scope)
@@ -613,13 +615,13 @@ defmodule Exception do
 
   ## Examples
 
-      iex> Exception.format_mfa Foo, :bar, 1
+      iex> Exception.format_mfa(Foo, :bar, 1)
       "Foo.bar/1"
 
-      iex> Exception.format_mfa Foo, :bar, []
+      iex> Exception.format_mfa(Foo, :bar, [])
       "Foo.bar()"
 
-      iex> Exception.format_mfa nil, :bar, []
+      iex> Exception.format_mfa(nil, :bar, [])
       "nil.bar()"
 
   Anonymous functions are reported as -func/arity-anonfn-count-,
@@ -810,7 +812,7 @@ defmodule BadArityError do
     fun = exception.function
     args = exception.args
     insp = Enum.map_join(args, ", ", &inspect/1)
-    {:arity, arity} = :erlang.fun_info(fun, :arity)
+    {:arity, arity} = Function.info(fun, :arity)
     "#{inspect(fun)} with arity #{arity} called with #{count(length(args), insp)}"
   end
 

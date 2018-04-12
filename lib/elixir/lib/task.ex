@@ -56,8 +56,18 @@ defmodule Task do
 
   ## Supervised tasks
 
-  It is also possible to spawn a task under a supervisor.
-  It is often done by defining the task in its own module:
+  It is also possible to spawn a task under a supervisor. The `Task`
+  module implements the `child_spec/1` function, which allows it to
+  be started directly under a supervisor by passing a tuple with
+  a function to run:
+
+      Supervisor.start_link([
+        {Task, fn -> ... some function ... end}
+      ])
+
+  However, if you want to invoke a specific module, function and
+  arguments, or give the task process a name, you need to define
+  the task in its own module:
 
       defmodule MyTask do
         use Task
@@ -73,7 +83,9 @@ defmodule Task do
 
   And then passing it to the supervisor:
 
-      Supervisor.start_link([MyTask])
+      Supervisor.start_link([
+        {MyTask, arg}
+      ])
 
   Since these tasks are supervised and not directly linked to
   the caller, they cannot be awaited on. Note `start_link/1`,
@@ -173,7 +185,12 @@ defmodule Task do
 
   @type t :: %__MODULE__{}
 
-  @doc false
+  @doc """
+  Returns a specification to start a task under a supervisor.
+
+  See `Supervisor`.
+  """
+  @since "1.5.0"
   def child_spec(arg) do
     %{
       id: Task,
@@ -184,10 +201,13 @@ defmodule Task do
 
   @doc false
   defmacro __using__(opts) do
-    quote location: :keep do
-      @opts unquote(opts)
+    quote location: :keep, bind_quoted: [opts: opts] do
+      @doc """
+      Returns a specification to start this module under a supervisor.
 
-      @doc false
+      See `Supervisor`.
+      """
+      @since "1.5.0"
       def child_spec(arg) do
         default = %{
           id: __MODULE__,
@@ -195,7 +215,7 @@ defmodule Task do
           restart: :temporary
         }
 
-        Supervisor.child_spec(default, @opts)
+        Supervisor.child_spec(default, unquote(Macro.escape(opts)))
       end
 
       defoverridable child_spec: 1
@@ -389,6 +409,7 @@ defmodule Task do
       Enum.to_list(stream)
 
   """
+  @since "1.4.0"
   @spec async_stream(Enumerable.t(), module, atom, [term], keyword) :: Enumerable.t()
   def async_stream(enumerable, module, function, args, options \\ [])
       when is_atom(module) and is_atom(function) and is_list(args) do
@@ -408,12 +429,13 @@ defmodule Task do
   Count the codepoints in each string asynchronously, then add the counts together using reduce.
 
       iex> strings = ["long string", "longer string", "there are many of these"]
-      iex> stream = Task.async_stream(strings, fn text -> text |> String.codepoints |> Enum.count end)
+      iex> stream = Task.async_stream(strings, fn text -> text |> String.codepoints() |> Enum.count() end)
       iex> Enum.reduce(stream, 0, fn {:ok, num}, acc -> num + acc end)
       47
 
   See `async_stream/5` for discussion, options, and more examples.
   """
+  @since "1.4.0"
   @spec async_stream(Enumerable.t(), (term -> term), keyword) :: Enumerable.t()
   def async_stream(enumerable, fun, options \\ []) when is_function(fun, 1) do
     build_stream(enumerable, fun, options)

@@ -23,8 +23,8 @@ defmodule IEx.Helpers do
   There are many other helpers available, here are some examples:
 
     * `b/1`            - prints callbacks info and docs for a given module
-    * `c/1`            - compiles a file into the current directory
-    * `c/2`            - compiles a file to the given path
+    * `c/1`            - compiles a file
+    * `c/2`            - compiles a file and writes bytecode to the given path
     * `cd/1`           - changes the current directory
     * `clear/0`        - clears the screen
     * `exports/1`      - shows all exports (functions + macros) in a module
@@ -134,8 +134,9 @@ defmodule IEx.Helpers do
   Compiles the given files.
 
   It expects a list of files to compile and an optional path to write
-  the compiled code to (defaults to the current directory). When compiling
-  one file, there is no need to wrap it in a list.
+  the compiled code to. By default files are in-memory compiled.
+  To write compiled files to a current directory use empty string "" for the path.
+  When compiling one file, there is no need to wrap it in a list.
 
   It returns the names of the compiled modules.
 
@@ -256,14 +257,14 @@ defmodule IEx.Helpers do
 
   ## Examples
 
-      iex> open MyApp
-      iex> open MyApp.fun/2
-      iex> open {"path/to/file", 1}
+      iex> open(MyApp)
+      iex> open(MyApp.fun/2)
+      iex> open({"path/to/file", 1})
 
   """
   defmacro open(term) do
     quote do
-      IEx.Introspection.open(unquote(IEx.Introspection.decompose(term)))
+      IEx.Introspection.open(unquote(IEx.Introspection.decompose(term, __CALLER__)))
     end
   end
 
@@ -285,14 +286,14 @@ defmodule IEx.Helpers do
   It also accepts functions in the format `fun/arity`
   and `module.fun/arity`, for example:
 
-      iex> h receive/1
-      iex> h Enum.all?/2
-      iex> h Enum.all?
+      iex> h(receive/1)
+      iex> h(Enum.all?/2)
+      iex> h(Enum.all?)
 
   """
   defmacro h(term) do
     quote do
-      IEx.Introspection.h(unquote(IEx.Introspection.decompose(term)))
+      IEx.Introspection.h(unquote(IEx.Introspection.decompose(term, __CALLER__)))
     end
   end
 
@@ -310,7 +311,7 @@ defmodule IEx.Helpers do
   """
   defmacro b(term) do
     quote do
-      IEx.Introspection.b(unquote(IEx.Introspection.decompose(term)))
+      IEx.Introspection.b(unquote(IEx.Introspection.decompose(term, __CALLER__)))
     end
   end
 
@@ -335,7 +336,7 @@ defmodule IEx.Helpers do
   """
   defmacro t(term) do
     quote do
-      IEx.Introspection.t(unquote(IEx.Introspection.decompose(term)))
+      IEx.Introspection.t(unquote(IEx.Introspection.decompose(term, __CALLER__)))
     end
   end
 
@@ -363,7 +364,7 @@ defmodule IEx.Helpers do
 
   """
   def v(n \\ -1) do
-    IEx.History.nth(history(), n) |> elem(2)
+    IEx.History.nth(history(), n) |> elem(1)
   end
 
   @doc """
@@ -409,7 +410,7 @@ defmodule IEx.Helpers do
         [compile_erlang(source) |> elem(0)]
 
       true ->
-        Enum.map(Code.load_file(source), fn {name, _} -> name end)
+        Enum.map(Code.compile_file(source), fn {name, _} -> name end)
     end
   end
 
@@ -477,6 +478,7 @@ defmodule IEx.Helpers do
   Prints vm/runtime information such as versions, memory usage and statistics.
   Additional topics are available via `runtime_info/1`.
   """
+  @since "1.5.0"
   def runtime_info(), do: runtime_info([:system, :memory, :limits])
 
   @doc """
@@ -655,6 +657,7 @@ defmodule IEx.Helpers do
   @doc """
   Prints a list of all the functions and macros exported by the given module.
   """
+  @since "1.5.0"
   def exports(module \\ Kernel) do
     exports = IEx.Autocomplete.exports(module)
 
@@ -775,6 +778,7 @@ defmodule IEx.Helpers do
   control of the shell. If you would rather start a new shell,
   use `respawn/0` instead.
   """
+  @since "1.5.0"
   def continue do
     if whereis = IEx.Server.whereis() do
       send(whereis, {:continue, self()})
@@ -786,6 +790,7 @@ defmodule IEx.Helpers do
   @doc """
   Macro-based shortcut for `IEx.break!/4`.
   """
+  @since "1.5.0"
   defmacro break!(ast, stops \\ 1) do
     quote do
       require IEx
@@ -800,11 +805,13 @@ defmodule IEx.Helpers do
   See `IEx.break!/4` for a complete description of breakpoints
   in IEx.
   """
+  @since "1.5.0"
   defdelegate break!(module, function, arity, stops \\ 1), to: IEx
 
   @doc """
   Prints all breakpoints to the terminal.
   """
+  @since "1.5.0"
   def breaks do
     breaks(IEx.Pry.breaks())
   end
@@ -876,6 +883,7 @@ defmodule IEx.Helpers do
   like to effectively remove all breakpoints and instrumentation
   code from a module, use `remove_breaks/1` instead.
   """
+  @since "1.5.0"
   defdelegate reset_break(id), to: IEx.Pry
 
   @doc """
@@ -890,16 +898,19 @@ defmodule IEx.Helpers do
   like to effectively remove all breakpoints and instrumentation
   code from a module, use `remove_breaks/1` instead.
   """
+  @since "1.5.0"
   defdelegate reset_break(module, function, arity), to: IEx.Pry
 
   @doc """
   Removes all breakpoints and instrumentation from `module`.
   """
+  @since "1.5.0"
   defdelegate remove_breaks(module), to: IEx.Pry
 
   @doc """
   Removes all breakpoints and instrumentation from all modules.
   """
+  @since "1.5.0"
   defdelegate remove_breaks(), to: IEx.Pry
 
   @doc """
@@ -926,6 +937,7 @@ defmodule IEx.Helpers do
   Keep in mind the `whereami/1` location may not exist when prying
   precompiled source code, such as Elixir itself.
   """
+  @since "1.5.0"
   def whereami(radius \\ 2) do
     case Process.get(:iex_whereami) do
       {file, line, stacktrace} ->
@@ -1004,6 +1016,7 @@ defmodule IEx.Helpers do
       13
 
   """
+  @since "1.4.0"
   defmacro import_file(path) when is_binary(path) do
     import_file_if_available(path, false)
   end
@@ -1036,6 +1049,29 @@ defmodule IEx.Helpers do
     if Code.ensure_loaded?(module) do
       quote do
         import unquote(quoted_module), unquote(opts)
+      end
+    end
+  end
+
+  @doc """
+  Calls `use/2` with the given arguments, but only if the module is available.
+
+  This lets you use the module in `.iex.exs` files (including `~/.iex.exs`) without
+  getting compile errors if you open a console where the module is not available.
+
+  ## Example
+
+      # In ~/.iex.exs
+      use_if_available Phoenix.HTML
+
+  """
+  @since "1.7.0"
+  defmacro use_if_available(quoted_module, opts \\ []) do
+    module = Macro.expand(quoted_module, __CALLER__)
+
+    if Code.ensure_loaded?(module) do
+      quote do
+        use unquote(quoted_module), unquote(opts)
       end
     end
   end
@@ -1103,10 +1139,12 @@ defmodule IEx.Helpers do
       #Reference<0.21.32.43>
 
   """
+  @since "1.6.0"
   def ref(string) when is_binary(string) do
     :erlang.list_to_ref('#Ref<#{string}>')
   end
 
+  @since "1.6.0"
   def ref(w, x, y, z)
       when is_integer(w) and w >= 0 and is_integer(x) and x >= 0 and is_integer(y) and y >= 0 and
              is_integer(z) and z >= 0 do

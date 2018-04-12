@@ -139,7 +139,11 @@ defmodule System do
 
   # Get the date at compilation time.
   defmacrop get_date do
-    IO.iodata_to_binary(:httpd_util.rfc1123_date())
+    {{year, month, day}, {hour, minute, second}} = :calendar.universal_time()
+
+    "~4..0b-~2..0b-~2..0bT~2..0b:~2..0b:~2..0bZ"
+    |> :io_lib.format([year, month, day, hour, minute, second])
+    |> :erlang.iolist_to_binary()
   end
 
   @doc """
@@ -514,6 +518,7 @@ defmodule System do
       System.stop(1)
 
   """
+  @since "1.5.0"
   @spec stop(non_neg_integer | binary) :: no_return
   def stop(status \\ 0)
 
@@ -551,13 +556,13 @@ defmodule System do
 
   ## Examples
 
-      iex> System.cmd "echo", ["hello"]
+      iex> System.cmd("echo", ["hello"])
       {"hello\n", 0}
 
-      iex> System.cmd "echo", ["hello"], env: [{"MIX_ENV", "test"}]
+      iex> System.cmd("echo", ["hello"]), env: [{"MIX_ENV", "test"}]
       {"hello\n", 0}
 
-      iex> System.cmd "echo", ["hello"], into: IO.stream(:stdio, :line)
+      iex> System.cmd("echo", ["hello"]), into: IO.stream(:stdio, :line)
       hello
       {%IO.Stream{}, 0}
 
@@ -629,9 +634,8 @@ defmodule System do
       do_cmd(Port.open({:spawn_executable, cmd}, opts), initial, fun)
     catch
       kind, reason ->
-        stacktrace = System.stacktrace()
         fun.(initial, :halt)
-        :erlang.raise(kind, reason, stacktrace)
+        :erlang.raise(kind, reason, __STACKTRACE__)
     else
       {acc, status} -> {fun.(acc, :done), status}
     end

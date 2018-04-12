@@ -118,6 +118,11 @@ defmodule Calendar do
   @callback days_in_month(year, month) :: day
 
   @doc """
+  Returns how many months there are in the given year.
+  """
+  @callback months_in_year(year) :: month
+
+  @doc """
   Returns true if the given year is a leap year.
 
   A leap year is a year of a longer length than normal. The exact meaning
@@ -229,6 +234,7 @@ defmodule Calendar do
   between them. If they are compatible, this means that we can also convert
   dates as well as naive datetimes between them.
   """
+  @since "1.5.0"
   @spec compatible_calendars?(Calendar.calendar(), Calendar.calendar()) :: boolean
   def compatible_calendars?(calendar, calendar), do: true
 
@@ -241,6 +247,7 @@ defmodule Calendar do
   Returns a microsecond tuple truncated to a given precision (`:microsecond`,
   `:millisecond` or `:second`).
   """
+  @since "1.6.0"
   @spec truncate(Calendar.microsecond(), :microsecond | :millisecond | :second) ::
           Calendar.microsecond()
   def truncate(microsecond_tuple, :microsecond), do: microsecond_tuple

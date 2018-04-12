@@ -26,8 +26,8 @@ defmodule Map do
       %{:a => 1, :b => 2, "hello" => "world"}
 
   Keys in maps can be accessed through some of the functions in this module
-  (such as `Map.get/3` or `Map.fetch/2`) or through the `[]` syntax provided by
-  the `Access` module:
+  (such as `Map.get/3` or `Map.fetch/2`) or through the `map[]` syntax provided
+  by the `Access` module:
 
       iex> map = %{a: 1, b: 2}
       iex> Map.fetch(map, :a)
@@ -37,10 +37,9 @@ defmodule Map do
       iex> map["non_existing_key"]
       nil
 
-  The alternative access syntax `map.key` is provided alongside `[]` when the
-  map has a `:key` key; note that while `map[key]` will return `nil` if `map`
-  doesn't contain `key`, `map.key` will raise if `map` doesn't contain
-  the key `:key`.
+  For accessing atom keys, one may also `map.key`. Note that while `map[key]` will
+  return `nil` if `map` doesn't contain `key`, `map.key` will raise if `map` doesn't
+  contain the key `:key`.
 
       iex> map = %{foo: "bar", baz: "bong"}
       iex> map.foo
@@ -48,7 +47,13 @@ defmodule Map do
       iex> map.non_existing_key
       ** (KeyError) key :non_existing_key not found in: %{baz: "bong", foo: "bar"}
 
-  Maps can be pattern matched on; when a map is on the left-hand side of a
+  The two syntaxes for accessing keys reveal the dual nature of maps. The `map[key]`
+  syntax is used for dynamically created maps that may have any key, of any type.
+  `map.key` is used with maps that hold a predetermined set of atoms keys, which are
+  expected to always be present. Structs, defined via `defstruct/1`, are one example
+  of such "static maps", where the keys can also be checked during compile time.
+
+  Maps can be pattern matched on. When a map is on the left-hand side of a
   pattern match, it will match if the map on the right-hand side contains the
   keys on the left-hand side and their values match the ones on the left-hand
   side. This means that an empty map matches every map.
@@ -142,7 +147,7 @@ defmodule Map do
 
   ## Examples
 
-      iex> Map.new
+      iex> Map.new()
       %{}
 
   """
@@ -312,6 +317,7 @@ defmodule Map do
 
   Inlined by the compiler.
   """
+  @since "1.5.0"
   @spec replace!(map, key, value) :: map
   def replace!(map, key, value) do
     :maps.update(key, value, map)
@@ -742,7 +748,7 @@ defmodule Map do
   (the retrieved value, which can be operated on before being returned) and the
   new value to be stored under `key` in the resulting new map. `fun` may also
   return `:pop`, which means the current value shall be removed from `map` and
-  returned (making this function behave like `Map.pop(map, key)`.
+  returned (making this function behave like `Map.pop(map, key)`).
 
   The returned value is a tuple with the "get" value returned by
   `fun` and a new map with the updated value under `key`.

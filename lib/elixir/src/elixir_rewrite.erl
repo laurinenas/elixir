@@ -20,6 +20,7 @@
 -define(string_chars, 'Elixir.String.Chars').
 -define(system, 'Elixir.System').
 -define(tuple, 'Elixir.Tuple').
+-define(function, 'Elixir.Function').
 
 %% Inline
 
@@ -65,6 +66,7 @@ inline(?kernel, bit_size, 1) -> {erlang, bit_size};
 inline(?kernel, byte_size, 1) -> {erlang, byte_size};
 inline(?kernel, 'div', 2) -> {erlang, 'div'};
 inline(?kernel, exit, 1) -> {erlang, exit};
+inline(?kernel, 'function_exported?', 3) -> {erlang, function_exported};
 inline(?kernel, hd, 1) -> {erlang, hd};
 inline(?kernel, is_atom, 1) -> {erlang, is_atom};
 inline(?kernel, is_binary, 1) -> {erlang, is_binary};
@@ -165,6 +167,10 @@ inline(?system, unique_integer, 1) -> {erlang, unique_integer};
 
 inline(?tuple, to_list, 1) -> {erlang, tuple_to_list};
 inline(?tuple, append, 2) -> {erlang, append_element};
+
+inline(?function, capture, 3) -> {erlang, make_fun};
+inline(?function, info, 1) -> {erlang, fun_info};
+inline(?function, info, 2) -> {erlang, fun_info};
 
 inline(_, _, _) -> false.
 

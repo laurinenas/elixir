@@ -1,11 +1,45 @@
 # Compatibility and Deprecations
 
+Elixir is versioned according to a vMAJOR.MINOR.PATCH schema.
+
+Elixir is currently at major version v1. A new minor release happens every 6 months. Patch releases are not scheduled and are made whenever there are bug or security fixes.
+
+Elixir applies bug fixes only to the latest minor branch. Security patches are available for the last 5 minor branches:
+
+Elixir version | Support
+:------------- | :----------------------
+1.6            | Bug and security fixes
+1.5            | Security patches only
+1.4            | Security patches only
+1.3            | Security patches only
+1.2            | Security patches only
+
+At the moment, there are no plans for a major v2 release.
+
+## Compatibility between Elixir v1.x versions
+
+Elixir v1.x releases are backwards compatible: well-defined behaviours and documented APIs in a given version will continue working on future releases.
+
+Although we expect the vast majority of programs to remain compatible over time, it is impossible to guarantee that no future change will break any program. Under some unlikely circumstances, we may introduce changes that break existing code:
+
+  * Security: a security issue in the implementation may arise whose resolution requires backwards incompatible changes. We reserve the right to address such security issues.
+
+  * Bugs: if an API has undesired behaviour, a program that depends on the buggy behaviour may break if the bug is fixed. We reserve the right to fix such bugs.
+
+  * Compiler front-end: improvements may be done to the compiler, introducing new warnings for ambiguous modes and providing more detailed error messages. Those can lead to compilation errors (when running with `--warning-as-errors`) or tooling failures when asserting on specific error messages (although one should avoid such). We reserve the right to do such improvements.
+
+  * Imports: new functions may be added to the `Kernel` module, which is auto-imported. They may collide with local functions defined in your modules. Collisions can be resolved in a backwards compatible fashion using `import Kernel, except: [...]` with a list of all functions you don't want to be imported from `Kernel`. We reserve the right to do such additions.
+
+In order to continue evolving the language without introducing breaking changes, Elixir will rely on deprecations to demote certain practices and promote new ones. Our deprecation policy is outlined in the ["Deprecations" section](#deprecations).
+
+The only exception to the rules above are experimental features, which will be explicitly marked as such, and do not provide any compatibility guarantee until they are stabilized.
+
 ## Compatibility between Elixir and Erlang/OTP
 
 Erlang/OTP versioning is independent from the versioning of Elixir. Each version of Elixir supports a specific range of Erlang/OTP versions. The compatibility table is shown below.
 
 Elixir version | Supported Erlang/OTP versions
-:------------- | :----------------------------
+:------------- | :-------------------------------
 1.0            | 17 - 17 (and OTP 18 from v1.0.5)
 1.1            | 17 - 18
 1.2            | 18 - 18 (and OTP 19 from v1.2.6)
@@ -34,10 +68,12 @@ Deprecated feature                               | Deprecated in | Replaced by (
 :----------------------------------------------- | :------------ | :----------------------------
 `Enum.chunk/2/3/4`                               | [v1.7]        | `Enum.chunk_every/2/3/4` (v1.5)
 `not left in right`                              | [v1.7]        | `left not in right` (v1.5)
+`Registry.start_link/3`                          | [v1.7]        | `Registry.start_link/1` (v1.5)
 `Stream.chunk/2/3/4`                             | [v1.7]        | `Stream.chunk_every/2/3/4` (v1.5)
 `Enum.partition/2`                               | [v1.6]        | `Enum.split_with/2` (v1.4)
 `Keyword.replace/3`                              | [v1.6]        | Use `Keyword.fetch/2` + `Keyword.put/3` (v1.0)
 `Macro.unescape_tokens/1` and `Macro.unescape_tokens/2` | [v1.6] | Use `Enum.map/2` to traverse over the arguments (v1.0)
+`Module.add_doc/6`                               | [v1.6]        | Use `@doc` instead
 `Map.replace/3`                                  | [v1.6]        | Use `Map.fetch/2` + `Map.put/3` (v1.0)
 `Range.range?/1`                                 | [v1.6]        | Pattern match on `_.._` instead (v1.0)
 `Atom.to_char_list/1`                            | [v1.5]        | `Atom.to_charlist/1` (v1.3)

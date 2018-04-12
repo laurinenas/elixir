@@ -1,17 +1,22 @@
 # Guards
 
-Guards are a way to augment pattern matching with more complex checks; they are allowed in a predefined set of constructs where pattern matching is allowed.
+Guards are a way to augment pattern matching with more complex checks. They are allowed in a predefined set of constructs where pattern matching is allowed.
+
+Not all expressions are allowed in guard clauses, but only a handful of them. This is a deliberate choice. This way, Elixir (and Erlang) can make sure that nothing bad happens while executing guards and no mutations happen anywhere. It also allows the compiler to optimize the code related to guards efficiently.
 
 ## List of allowed expressions
 
 For reference, the following is a comprehensive list of all expressions allowed in guards:
 
-  * comparison operators (`==`, `!=`, `===`, `!==`, `>`, `>=`, `<`, `<=`)
-  * strictly boolean operators (`and`, `or`, `not`) (the `&&`, `||`, and `!` sibling operators are not allowed as they're not *strictly* boolean - meaning they don't require both sides to be booleans)
-  * arithmetic binary operators (`+`, `-`, `*`, `/`)
-  * arithmetic unary operators (`+`, `-`)
-  * binary concatenation operator (`<>`)
-  * `in` and `not in` operators (as long as the right-hand side is a list or a range)
+  * comparison operators ([`==`](`Kernel.==/2`), [`!=`](`Kernel.!=/2`), [`===`](`Kernel.===/2`), [`!==`](`Kernel.!==/2`),
+    [`>`](`Kernel.>/2`), [`>=`](`Kernel.>=/2`), [`<`](`Kernel.</2`), [`<=`](`Kernel.<=/2`))
+  * strictly boolean operators ([`and`](`Kernel.and/2`), [`or`](`Kernel.or/2`), [`not`](`Kernel.not/1`))
+    - __NOTE__: [`&&`](`Kernel.&&/2`), [`||`](`Kernel.||/2`), and [`!`](`Kernel.!/1`) sibling operators are not allowed as they're not
+    *strictly* boolean - meaning they don't require both sides to be booleans
+  * arithmetic binary operators ([`+`](`Kernel.+/2`), [`-`](`Kernel.-/2`), [`*`](`Kernel.*/2`), [`/`](`Kernel.//2`))
+  * arithmetic unary operators ([`+`](`Kernel.+/1`), [`-`](`Kernel.-/1`))
+  * binary concatenation operator ([`<>`](`Kernel.<>/2`))
+  * [`in`](`Kernel.in/2`) and [`not in`](`Kernel.in/2`) operators (as long as the right-hand side is a list or a range)
   * the following "type-check" functions (all documented in the `Kernel` module):
     * `is_atom/1`
     * `is_binary/1`
@@ -48,12 +53,12 @@ For reference, the following is a comprehensive list of all expressions allowed 
     * `trunc/1`
     * `tuple_size/1`
   * the following handful of Erlang bitwise operations, if imported from the `Bitwise` module:
-    * `band/2` or the `&&&` operator
-    * `bor/2` or the `|||` operator
-    * `bnot/1` or the `~~~` operator
-    * `bsl/1` or the `<<<` operator
-    * `bsr/1` or the `>>>` operator
-    * `bxor/2` or the `^^^` operator
+    * [`band/2`](`Bitwise.band/2`) or the [`&&&`](`Bitwise.&&&/2`) operator
+    * [`bor/2`](`Bitwise.bor/2`) or the [`|||`](`Bitwise.|||/2`) operator
+    * [`bnot/1`](`Bitwise.bnot/1`) or the [`~~~`](`Bitwise.~~~/1`) operator
+    * [`bsl/2`](`Bitwise.bsl/2`) or the [`<<<`](`Bitwise.<<</2`) operator
+    * [`bsr/2`](`Bitwise.bsr/2`) or the [`>>>`](`Bitwise.>>>/2`) operator
+    * [`bxor/2`](`Bitwise.bxor/2`) or the [`^^^`](`Bitwise.^^^/2`) operator
 
 Macros constructed out of any combination of the above guards are also valid guards - for example, `Integer.is_even/1`. See the section "Defining custom guard expressions" below.
 
@@ -81,7 +86,7 @@ In the example above, we show how guards can be used in function clauses. There 
   def foo(term) when is_float(term), do: round(term)
   ```
 
-  * `case` expressions:
+  * [`case`](`Kernel.SpecialForms.case/2`) expressions:
 
   ```elixir
   case x do
@@ -91,7 +96,7 @@ In the example above, we show how guards can be used in function clauses. There 
   end
   ```
 
-  * anonymous functions (`fn`s):
+  * anonymous functions ([`fn`](`Kernel.SpecialForms.fn/1`)s):
 
   ```elixir
   larger_than_two? = fn
@@ -100,11 +105,15 @@ In the example above, we show how guards can be used in function clauses. There 
   end
   ```
 
-Other constructs are `for`, `with`, `try`/`rescue`/`catch`/`else`/, and the `match?/2` macro in the `Kernel` module.
+  * custom guards can also be defined with `Kernel.defguard/1` and `Kernel.defguardp/1`.
+    A custom guard is always defined based on existing guards.
+
+Other constructs are [`for`](`Kernel.SpecialForms.for/1`), [`with`](`Kernel.SpecialForms.with/1`), [`try/rescue/catch/else`](`Kernel.SpecialForms.try/1`), and the `Kernel.match?/2`.
 
 ## Failing guards
 
-Errors in guards do not result in runtime errors, but in guards failing. For example, the `length/1` function only works with lists. If we use it with anything else, a runtime error is raised:
+In guards, when functions would normally raise exceptions, they cause the guard to fail instead.
+For example, the `length/1` function only works with lists. If we use it with anything else, a runtime error is raised:
 
 ```elixir
 iex> length("hello")
@@ -124,10 +133,6 @@ iex> case "hello" do
 ```
 
 In many cases, we can take advantage of this. In the code above, we used `length/1` to both check that the given thing is a list *and* check some properties of its length (instead of using `is_list(something) and length(something) > 0`).
-
-## Expressions in guard clauses
-
-Not all expressions are allowed in guard clauses, but only a handful of them. This is a deliberate choice: only a predefined set of side-effect-free functions are allowed. This way, Elixir (and Erlang) can make sure that nothing bad happens while executing guards and no mutations happen anywhere. This behaviour is also coherent with pattern match, which is a naturally a side-effect-free operation. Finally, keeping expressions allowed in clauses to a close set of predefined ones allows the compiler to optimize the code related to choosing the right clause.
 
 ## Defining custom guard expressions
 
@@ -162,6 +167,14 @@ import MyInteger, only: [is_even: 1]
 
 def my_function(number) when is_even(number) do
   # do stuff
+end
+```
+
+While it's possible to create custom guards with macros, it's recommended to define them using `defguard` and `defguardp` which perform additional compile-time checks. Here's an example:
+
+```elixir
+defmodule MyInteger do
+  defguard is_even(value) when is_integer(value) and rem(value, 2) == 0
 end
 ```
 

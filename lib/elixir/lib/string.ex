@@ -203,9 +203,22 @@ defmodule String do
   is generated at runtime and does not survive compile term.
   """
 
+  @typedoc """
+  A UTF-8 encoded binary.
+
+  Note `String.t()` and `binary()` are equivalent to analysis tools.
+  Although, for those reading the documentation, `String.t()` implies
+  it is a UTF-8 encoded binary.
+  """
   @type t :: binary
+
+  @typedoc "A UTF-8 codepoint. It may be one or more bytes."
   @type codepoint :: t
+
+  @typedoc "Multiple codepoints that may be perceived as a single character by readers"
   @type grapheme :: t
+
+  @typedoc "Pattern used in functions like `replace/3` and `split/2`"
   @type pattern :: t | [t] | :binary.cp()
 
   @conditional_mappings [:greek]
@@ -508,19 +521,19 @@ defmodule String do
 
   ## Examples
 
-      iex> String.split_at "sweetelixir", 5
+      iex> String.split_at("sweetelixir", 5)
       {"sweet", "elixir"}
 
-      iex> String.split_at "sweetelixir", -6
+      iex> String.split_at("sweetelixir", -6)
       {"sweet", "elixir"}
 
-      iex> String.split_at "abc", 0
+      iex> String.split_at("abc", 0)
       {"", "abc"}
 
-      iex> String.split_at "abc", 1000
+      iex> String.split_at("abc", 1000)
       {"abc", ""}
 
-      iex> String.split_at "abc", -1000
+      iex> String.split_at("abc", -1000)
       {"", "abc"}
 
   """
@@ -1343,7 +1356,7 @@ defmodule String do
       "̀e"
       iex> String.reverse("̀e")
       "è"
-      iex> String.reverse String.reverse("̀e")
+      iex> String.reverse(String.reverse("̀e"))
       "è"
 
   In the first example the accent is before the vowel, so
@@ -1446,13 +1459,13 @@ defmodule String do
       iex> String.valid?("ø")
       true
 
-      iex> String.valid?(<<0xFFFF :: 16>>)
+      iex> String.valid?(<<0xFFFF::16>>)
       false
 
       iex> String.valid?(<<0xEF, 0xB7, 0x90>>)
       true
 
-      iex> String.valid?("asd" <> <<0xFFFF :: 16>>)
+      iex> String.valid?("asd" <> <<0xFFFF::16>>)
       false
 
   """
@@ -1736,7 +1749,7 @@ defmodule String do
       ""
 
   """
-  @spec slice(t, integer, integer) :: grapheme
+  @spec slice(t, integer, non_neg_integer) :: grapheme
 
   def slice(_, _, 0) do
     ""
@@ -1869,18 +1882,18 @@ defmodule String do
 
   ## Examples
 
-      iex> String.starts_with? "elixir", "eli"
+      iex> String.starts_with?("elixir", "eli")
       true
-      iex> String.starts_with? "elixir", ["erlang", "elixir"]
+      iex> String.starts_with?("elixir", ["erlang", "elixir"])
       true
-      iex> String.starts_with? "elixir", ["erlang", "ruby"]
+      iex> String.starts_with?("elixir", ["erlang", "ruby"])
       false
 
   An empty string will always match:
 
-      iex> String.starts_with? "elixir", ""
+      iex> String.starts_with?("elixir", "")
       true
-      iex> String.starts_with? "elixir", ["", "other"]
+      iex> String.starts_with?("elixir", ["", "other"])
       true
 
   """
@@ -1904,18 +1917,18 @@ defmodule String do
 
   ## Examples
 
-      iex> String.ends_with? "language", "age"
+      iex> String.ends_with?("language", "age")
       true
-      iex> String.ends_with? "language", ["youth", "age"]
+      iex> String.ends_with?("language", ["youth", "age"])
       true
-      iex> String.ends_with? "language", ["youth", "elixir"]
+      iex> String.ends_with?("language", ["youth", "elixir"])
       false
 
   An empty suffix will always match:
 
-      iex> String.ends_with? "language", ""
+      iex> String.ends_with?("language", "")
       true
-      iex> String.ends_with? "language", ["", "other"]
+      iex> String.ends_with?("language", ["", "other"])
       true
 
   """
@@ -1963,24 +1976,24 @@ defmodule String do
 
   ## Examples
 
-      iex> String.contains? "elixir of life", "of"
+      iex> String.contains?("elixir of life", "of")
       true
-      iex> String.contains? "elixir of life", ["life", "death"]
+      iex> String.contains?("elixir of life", ["life", "death"])
       true
-      iex> String.contains? "elixir of life", ["death", "mercury"]
+      iex> String.contains?("elixir of life", ["death", "mercury"])
       false
 
   An empty string will always match:
 
-      iex> String.contains? "elixir of life", ""
+      iex> String.contains?("elixir of life", "")
       true
-      iex> String.contains? "elixir of life", ["", "other"]
+      iex> String.contains?("elixir of life", ["", "other"])
       true
 
   The argument can also be a precompiled pattern:
 
       iex> pattern = :binary.compile_pattern(["life", "death"])
-      iex> String.contains? "elixir of life", pattern
+      iex> String.contains?("elixir of life", pattern)
       true
 
   Note this function can match within or across grapheme boundaries.

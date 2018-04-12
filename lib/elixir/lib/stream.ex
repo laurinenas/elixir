@@ -8,7 +8,7 @@ defmodule Stream do
 
       iex> range = 1..5
       1..5
-      iex> Enum.map range, &(&1 * 2)
+      iex> Enum.map(range, &(&1 * 2))
       [2, 4, 6, 8, 10]
 
   In the example above, as we mapped over the range, the elements being
@@ -137,6 +137,7 @@ defmodule Stream do
   @doc """
   Shortcut to `chunk_every(enum, count, count)`.
   """
+  @since "1.5.0"
   @spec chunk_every(Enumerable.t(), pos_integer) :: Enumerable.t()
   def chunk_every(enum, count), do: chunk_every(enum, count, count, [])
 
@@ -157,19 +158,20 @@ defmodule Stream do
 
   ## Examples
 
-      iex> Stream.chunk_every([1, 2, 3, 4, 5, 6], 2) |> Enum.to_list
+      iex> Stream.chunk_every([1, 2, 3, 4, 5, 6], 2) |> Enum.to_list()
       [[1, 2], [3, 4], [5, 6]]
 
-      iex> Stream.chunk_every([1, 2, 3, 4, 5, 6], 3, 2, :discard) |> Enum.to_list
+      iex> Stream.chunk_every([1, 2, 3, 4, 5, 6], 3, 2, :discard) |> Enum.to_list()
       [[1, 2, 3], [3, 4, 5]]
 
-      iex> Stream.chunk_every([1, 2, 3, 4, 5, 6], 3, 2, [7]) |> Enum.to_list
+      iex> Stream.chunk_every([1, 2, 3, 4, 5, 6], 3, 2, [7]) |> Enum.to_list()
       [[1, 2, 3], [3, 4, 5], [5, 6, 7]]
 
-      iex> Stream.chunk_every([1, 2, 3, 4, 5, 6], 3, 3, []) |> Enum.to_list
+      iex> Stream.chunk_every([1, 2, 3, 4, 5, 6], 3, 3, []) |> Enum.to_list()
       [[1, 2, 3], [4, 5, 6]]
 
   """
+  @since "1.5.0"
   @spec chunk_every(Enumerable.t(), pos_integer, pos_integer, Enumerable.t() | :discard) ::
           Enumerable.t()
   def chunk_every(enum, count, step, leftover \\ [])
@@ -223,6 +225,7 @@ defmodule Stream do
       [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]]
 
   """
+  @since "1.5.0"
   @spec chunk_while(
           Enumerable.t(),
           acc,
@@ -276,7 +279,7 @@ defmodule Stream do
 
   ## Examples
 
-      iex> Stream.dedup([1, 2, 3, 3, 2, 1]) |> Enum.to_list
+      iex> Stream.dedup([1, 2, 3, 3, 2, 1]) |> Enum.to_list()
       [1, 2, 3, 2, 1]
 
   """
@@ -291,7 +294,7 @@ defmodule Stream do
 
   ## Examples
 
-      iex> Stream.dedup_by([{1, :x}, {2, :y}, {2, :z}, {1, :x}], fn {x, _} -> x end) |> Enum.to_list
+      iex> Stream.dedup_by([{1, :x}, {2, :y}, {2, :z}, {1, :x}], fn {x, _} -> x end) |> Enum.to_list()
       [{1, :x}, {2, :y}, {1, :x}]
 
   """
@@ -320,11 +323,11 @@ defmodule Stream do
 
   """
   @spec drop(Enumerable.t(), non_neg_integer) :: Enumerable.t()
-  def drop(enum, n) when n >= 0 do
+  def drop(enum, n) when is_integer(n) and n >= 0 do
     lazy(enum, n, fn f1 -> R.drop(f1) end)
   end
 
-  def drop(enum, n) when n < 0 do
+  def drop(enum, n) when is_integer(n) and n < 0 do
     n = abs(n)
 
     lazy(enum, {0, [], []}, fn f1 ->
@@ -404,7 +407,7 @@ defmodule Stream do
 
   ## Examples
 
-      iex> stream = Stream.each([1, 2, 3], fn(x) -> send self(), x end)
+      iex> stream = Stream.each([1, 2, 3], fn x -> send(self(), x) end)
       iex> Enum.to_list(stream)
       iex> receive do: (x when is_integer(x) -> x)
       1
@@ -432,11 +435,11 @@ defmodule Stream do
 
   ## Examples
 
-      iex> stream = Stream.flat_map([1, 2, 3], fn(x) -> [x, x * 2] end)
+      iex> stream = Stream.flat_map([1, 2, 3], fn x -> [x, x * 2] end)
       iex> Enum.to_list(stream)
       [1, 2, 2, 4, 3, 6]
 
-      iex> stream = Stream.flat_map([1, 2, 3], fn(x) -> [[x]] end)
+      iex> stream = Stream.flat_map([1, 2, 3], fn x -> [[x]] end)
       iex> Enum.to_list(stream)
       [[1], [2], [3]]
 
@@ -452,7 +455,7 @@ defmodule Stream do
 
   ## Examples
 
-      iex> stream = Stream.filter([1, 2, 3], fn(x) -> rem(x, 2) == 0 end)
+      iex> stream = Stream.filter([1, 2, 3], fn x -> rem(x, 2) == 0 end)
       iex> Enum.to_list(stream)
       [2]
 
@@ -523,9 +526,8 @@ defmodule Stream do
       reduce.({command, [acc | collectable]})
     catch
       kind, reason ->
-        stacktrace = System.stacktrace()
         into.(collectable, :halt)
-        :erlang.raise(kind, reason, stacktrace)
+        :erlang.raise(kind, reason, __STACKTRACE__)
     else
       {:suspended, [acc | collectable], continuation} ->
         {:suspended, acc, &do_into(continuation, collectable, into, &1)}
@@ -542,7 +544,7 @@ defmodule Stream do
 
   ## Examples
 
-      iex> stream = Stream.map([1, 2, 3], fn(x) -> x * 2 end)
+      iex> stream = Stream.map([1, 2, 3], fn x -> x * 2 end)
       iex> Enum.to_list(stream)
       [2, 4, 6]
 
@@ -562,19 +564,20 @@ defmodule Stream do
 
   ## Examples
 
-      iex> stream = Stream.map_every(1..10, 2, fn(x) -> x * 2 end)
+      iex> stream = Stream.map_every(1..10, 2, fn x -> x * 2 end)
       iex> Enum.to_list(stream)
       [2, 2, 6, 4, 10, 6, 14, 8, 18, 10]
 
-      iex> stream = Stream.map_every([1, 2, 3, 4, 5], 1, fn(x) -> x * 2 end)
+      iex> stream = Stream.map_every([1, 2, 3, 4, 5], 1, fn x -> x * 2 end)
       iex> Enum.to_list(stream)
       [2, 4, 6, 8, 10]
 
-      iex> stream = Stream.map_every(1..5, 0, fn(x) -> x * 2 end)
+      iex> stream = Stream.map_every(1..5, 0, fn x -> x * 2 end)
       iex> Enum.to_list(stream)
       [1, 2, 3, 4, 5]
 
   """
+  @since "1.4.0"
   @spec map_every(Enumerable.t(), non_neg_integer, (element -> any)) :: Enumerable.t()
   def map_every(enum, nth, fun)
 
@@ -592,7 +595,7 @@ defmodule Stream do
 
   ## Examples
 
-      iex> stream = Stream.reject([1, 2, 3], fn(x) -> rem(x, 2) == 0 end)
+      iex> stream = Stream.reject([1, 2, 3], fn x -> rem(x, 2) == 0 end)
       iex> Enum.to_list(stream)
       [1, 3]
 
@@ -754,7 +757,7 @@ defmodule Stream do
 
   ## Examples
 
-      iex> Stream.timer(10) |> Enum.to_list
+      iex> Stream.timer(10) |> Enum.to_list()
       [0]
 
   """
@@ -846,9 +849,8 @@ defmodule Stream do
       next.({:cont, []})
     catch
       kind, reason ->
-        stacktrace = System.stacktrace()
         do_after(after_fun, user_acc)
-        :erlang.raise(kind, reason, stacktrace)
+        :erlang.raise(kind, reason, __STACKTRACE__)
     else
       {:suspended, vals, next} ->
         do_transform_user(:lists.reverse(vals), user_acc, :cont, next, inner_acc, funs)
@@ -869,10 +871,9 @@ defmodule Stream do
       user.(val, user_acc)
     catch
       kind, reason ->
-        stacktrace = System.stacktrace()
         next.({:halt, []})
         do_after(after_fun, user_acc)
-        :erlang.raise(kind, reason, stacktrace)
+        :erlang.raise(kind, reason, __STACKTRACE__)
     else
       {[], user_acc} ->
         do_transform_user(vals, user_acc, next_op, next, inner_acc, funs)
@@ -899,10 +900,9 @@ defmodule Stream do
       reduce.(inner_acc)
     catch
       kind, reason ->
-        stacktrace = System.stacktrace()
         next.({:halt, []})
         do_after(after_fun, user_acc)
-        :erlang.raise(kind, reason, stacktrace)
+        :erlang.raise(kind, reason, __STACKTRACE__)
     else
       {:done, acc} ->
         do_transform_user(vals, user_acc, next_op, next, {:cont, acc}, funs)
@@ -925,10 +925,9 @@ defmodule Stream do
       reduce.({op, [:outer | inner_acc]})
     catch
       kind, reason ->
-        stacktrace = System.stacktrace()
         next.({:halt, []})
         do_after(after_fun, user_acc)
-        :erlang.raise(kind, reason, stacktrace)
+        :erlang.raise(kind, reason, __STACKTRACE__)
     else
       # Only take into account outer halts when the op is not halt itself.
       # Otherwise, we were the ones wishing to halt, so we should just stop.
@@ -974,7 +973,7 @@ defmodule Stream do
 
   ## Examples
 
-      iex> Stream.uniq([1, 2, 3, 3, 2, 1]) |> Enum.to_list
+      iex> Stream.uniq([1, 2, 3, 3, 2, 1]) |> Enum.to_list()
       [1, 2, 3]
 
   """
@@ -1004,10 +1003,10 @@ defmodule Stream do
 
   ## Example
 
-      iex> Stream.uniq_by([{1, :x}, {2, :y}, {1, :z}], fn {x, _} -> x end) |> Enum.to_list
+      iex> Stream.uniq_by([{1, :x}, {2, :y}, {1, :z}], fn {x, _} -> x end) |> Enum.to_list()
       [{1, :x}, {2, :y}]
 
-      iex> Stream.uniq_by([a: {:tea, 2}, b: {:tea, 2}, c: {:coffee, 1}], fn {_, y} -> y end) |> Enum.to_list
+      iex> Stream.uniq_by([a: {:tea, 2}, b: {:tea, 2}, c: {:coffee, 1}], fn {_, y} -> y end) |> Enum.to_list()
       [a: {:tea, 2}, c: {:coffee, 1}]
 
   """
@@ -1084,8 +1083,8 @@ defmodule Stream do
   ## Examples
 
       iex> concat = Stream.concat(1..3, 4..6)
-      iex> cycle  = Stream.cycle([:a, :b, :c])
-      iex> Stream.zip(concat, cycle) |> Enum.to_list
+      iex> cycle = Stream.cycle([:a, :b, :c])
+      iex> Stream.zip(concat, cycle) |> Enum.to_list()
       [{1, :a}, {2, :b}, {3, :c}, {4, :a}, {5, :b}, {6, :c}]
 
   """
@@ -1093,21 +1092,27 @@ defmodule Stream do
   def zip(left, right), do: zip([left, right])
 
   @doc """
-  Zips corresponding elements from a list of enumerables
+  Zips corresponding elements from a finite collection of enumerables
   into one stream of tuples.
 
-  The zipping finishes as soon as any enumerable in the given list completes.
+  The zipping finishes as soon as any enumerable in the given collection completes.
 
   ## Examples
 
       iex> concat = Stream.concat(1..3, 4..6)
       iex> cycle = Stream.cycle(["foo", "bar", "baz"])
-      iex> Stream.zip([concat, [:a, :b, :c], cycle]) |> Enum.to_list
+      iex> Stream.zip([concat, [:a, :b, :c], cycle]) |> Enum.to_list()
       [{1, :a, "foo"}, {2, :b, "bar"}, {3, :c, "baz"}]
 
   """
+  @since "1.4.0"
   @spec zip([Enumerable.t()]) :: Enumerable.t()
-  def zip(enumerables) when is_list(enumerables) do
+  @spec zip(Enumerable.t()) :: Enumerable.t()
+  def zip(enumerables) do
+    &prepare_zip(enumerables, &1, &2)
+  end
+
+  defp prepare_zip(enumerables, acc, fun) do
     step = &do_zip_step(&1, &2)
 
     enum_funs =
@@ -1115,7 +1120,7 @@ defmodule Stream do
         {&Enumerable.reduce(enum, &1, step), :cont}
       end)
 
-    &do_zip(enum_funs, &1, &2)
+    do_zip(enum_funs, acc, fun)
   end
 
   # This implementation of do_zip/3 works for any number of
@@ -1130,14 +1135,17 @@ defmodule Stream do
     {:suspended, acc, &do_zip(zips, &1, fun)}
   end
 
+  defp do_zip([], {:cont, acc}, _callback) do
+    {:done, acc}
+  end
+
   defp do_zip(zips, {:cont, acc}, callback) do
     try do
       do_zip_next_tuple(zips, acc, callback, [], [])
     catch
       kind, reason ->
-        stacktrace = System.stacktrace()
         do_zip_close(zips)
-        :erlang.raise(kind, reason, stacktrace)
+        :erlang.raise(kind, reason, __STACKTRACE__)
     else
       {:next, buffer, acc} ->
         do_zip(buffer, acc, callback)
@@ -1261,7 +1269,7 @@ defmodule Stream do
 
   ## Examples
 
-      iex> Stream.iterate(0, &(&1+1)) |> Enum.take(5)
+      iex> Stream.iterate(0, &(&1 + 1)) |> Enum.take(5)
       [0, 1, 2, 3, 4]
 
   """
@@ -1358,9 +1366,8 @@ defmodule Stream do
       end
     catch
       kind, reason ->
-        stacktrace = System.stacktrace()
         after_fun.(next_acc)
-        :erlang.raise(kind, reason, stacktrace)
+        :erlang.raise(kind, reason, __STACKTRACE__)
     else
       {:opt, acc, next_acc} ->
         do_resource(next_acc, next_fun, acc, fun, after_fun)
@@ -1384,9 +1391,8 @@ defmodule Stream do
       reduce.(acc)
     catch
       kind, reason ->
-        stacktrace = System.stacktrace()
         after_fun.(next_acc)
-        :erlang.raise(kind, reason, stacktrace)
+        :erlang.raise(kind, reason, __STACKTRACE__)
     else
       {:done, acc} ->
         do_resource(next_acc, next_fun, {:cont, acc}, fun, after_fun)
@@ -1404,9 +1410,8 @@ defmodule Stream do
       reduce.({op, [:outer | acc]})
     catch
       kind, reason ->
-        stacktrace = System.stacktrace()
         after_fun.(next_acc)
-        :erlang.raise(kind, reason, stacktrace)
+        :erlang.raise(kind, reason, __STACKTRACE__)
     else
       {:halted, [:outer | acc]} ->
         do_resource(next_acc, next_fun, {:cont, acc}, fun, after_fun)
@@ -1438,7 +1443,10 @@ defmodule Stream do
 
   ## Examples
 
-      iex> Stream.unfold(5, fn 0 -> nil; n -> {n, n-1} end) |> Enum.to_list()
+      iex> Stream.unfold(5, fn
+      ...>   0 -> nil
+      ...>   n -> {n, n - 1}
+      ...> end) |> Enum.to_list()
       [5, 4, 3, 2, 1]
 
   """
@@ -1467,16 +1475,17 @@ defmodule Stream do
 
   ## Examples
 
-      iex> Stream.intersperse([1, 2, 3], 0) |> Enum.to_list
+      iex> Stream.intersperse([1, 2, 3], 0) |> Enum.to_list()
       [1, 0, 2, 0, 3]
 
-      iex> Stream.intersperse([1], 0) |> Enum.to_list
+      iex> Stream.intersperse([1], 0) |> Enum.to_list()
       [1]
 
-      iex> Stream.intersperse([], 0) |> Enum.to_list
+      iex> Stream.intersperse([], 0) |> Enum.to_list()
       []
 
   """
+  @since "1.6.0"
   @spec intersperse(Enumerable.t(), any) :: Enumerable.t()
   def intersperse(enumerable, intersperse_element) do
     Stream.transform(enumerable, false, fn

@@ -127,7 +127,7 @@ defmodule Regex do
   ## Examples
 
       iex> Regex.compile("foo")
-      {:ok, ~r"foo"}
+      {:ok, ~r/foo/}
 
       iex> Regex.compile("*foo")
       {:error, {'nothing to repeat', 0}}
@@ -179,6 +179,7 @@ defmodule Regex do
   This checks the version stored in the regular expression
   and recompiles the regex in case of version mismatch.
   """
+  @since "1.4.0"
   @spec recompile(t) :: t
   def recompile(%Regex{} = regex) do
     version = version()
@@ -197,6 +198,7 @@ defmodule Regex do
   @doc """
   Recompiles the existing regular expression and raises `Regex.CompileError` in case of errors.
   """
+  @since "1.4.0"
   @spec recompile!(t) :: t
   def recompile!(regex) do
     case recompile(regex) do
@@ -208,6 +210,7 @@ defmodule Regex do
   @doc """
   Returns the version of the underlying Regex engine.
   """
+  @since "1.4.0"
   # TODO: No longer check for function_exported? on OTP 20+.
   def version do
     if function_exported?(:re, :version, 0) do
@@ -258,7 +261,8 @@ defmodule Regex do
 
   ## Options
 
-    * `:return`  - sets to `:index` to return indexes. Defaults to `:binary`.
+    * `:return` - set to `:index` to return byte index and match length.
+      Defaults to `:binary`.
     * `:capture` - what to capture in the result. Check the moduledoc for `Regex`
       to see the possible capture values.
 
@@ -289,9 +293,12 @@ defmodule Regex do
   end
 
   @doc """
-  Returns the given captures as a map or `nil` if no captures are
-  found. The option `:return` can be set to `:index` to get indexes
-  back.
+  Returns the given captures as a map or `nil` if no captures are found.
+
+  ## Options
+
+    * `:return` - set to `:index` to return byte index and match length.
+      Defaults to `:binary`.
 
   ## Examples
 
@@ -373,7 +380,8 @@ defmodule Regex do
 
   ## Options
 
-    * `:return`  - sets to `:index` to return indexes. Defaults to `:binary`.
+    * `:return` - set to `:index` to return byte index and match length.
+      Defaults to `:binary`.
     * `:capture` - what to capture in the result. Check the moduledoc for `Regex`
       to see the possible capture values.
 
@@ -390,6 +398,9 @@ defmodule Regex do
 
       iex> Regex.scan(~r/\p{Sc}/u, "$, £, and €")
       [["$"], ["£"], ["€"]]
+
+      iex> Regex.scan(~r/=+/, "=ü†ƒ8===", return: :index)
+      [[{0, 1}], [{9, 3}]]
 
   """
   @spec scan(t, String.t(), [term]) :: [[String.t()]]
@@ -433,7 +444,7 @@ defmodule Regex do
       iex> Regex.split(~r{-}, "a-b-c")
       ["a", "b", "c"]
 
-      iex> Regex.split(~r{-}, "a-b-c", [parts: 2])
+      iex> Regex.split(~r{-}, "a-b-c", parts: 2)
       ["a", "b-c"]
 
       iex> Regex.split(~r{-}, "abc")
@@ -466,7 +477,8 @@ defmodule Regex do
     end
   end
 
-  def split(%Regex{re_pattern: compiled}, string, opts) when is_binary(string) and is_list(opts) do
+  def split(%Regex{re_pattern: compiled}, string, opts)
+      when is_binary(string) and is_list(opts) do
     on = Keyword.get(opts, :on, :first)
 
     case :re.run(string, compiled, [:global, capture: on]) do
@@ -587,7 +599,7 @@ defmodule Regex do
 
   def replace(regex, string, replacement, options)
       when is_binary(string) and is_function(replacement) and is_list(options) do
-    {:arity, arity} = :erlang.fun_info(replacement, :arity)
+    {:arity, arity} = Function.info(replacement, :arity)
     do_replace(regex, string, {replacement, arity}, options)
   end
 
@@ -654,7 +666,8 @@ defmodule Regex do
     string
   end
 
-  defp apply_list(whole, string, pos, replacement, [[{mpos, _} | _] | _] = list) when mpos > pos do
+  defp apply_list(whole, string, pos, replacement, [[{mpos, _} | _] | _] = list)
+       when mpos > pos do
     length = mpos - pos
     <<untouched::binary-size(length), rest::binary>> = string
     [untouched | apply_list(whole, rest, mpos, replacement, list)]

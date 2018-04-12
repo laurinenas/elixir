@@ -121,7 +121,10 @@ defmodule Code.Formatter.OperatorsTest do
     end
 
     test "not in" do
-      assert_format "not(foo in bar)", "foo not in bar"
+      assert_format "not(foo in bar)", "not (foo in bar)"
+      assert_format "not(foo in bar)", "foo not in bar", rename_deprecated_at: "1.5.0"
+
+      assert_same "foo not in bar"
       assert_same "(not foo) in bar"
       assert_same "(!foo) in bar"
     end
@@ -806,9 +809,9 @@ defmodule Code.Formatter.OperatorsTest do
     end
 
     test "with operators outside" do
-      assert_same "(& &1) == & &2"
-      assert_same "(& &1) and & &2"
-      assert_same "(&foo/1) and &bar/1"
+      assert_same "(& &1) == (& &2)"
+      assert_same "(& &1) and (& &2)"
+      assert_same "(&foo/1) and (&bar/1)"
       assert_same "[(&IO.puts/1) | &IO.puts/2]"
     end
 

@@ -34,7 +34,7 @@ defmodule ExUnit.DocTest do
 
   A very basic example is:
 
-      iex> 1+1
+      iex> 1 + 1
       2
 
   Expressions on multiple lines are also supported:
@@ -57,13 +57,13 @@ defmodule ExUnit.DocTest do
       iex> a = 1
       1
 
-      iex> a + 1  # will fail with a "undefined function a/0" error
+      iex> a + 1 # will fail with a "undefined function a/0" error
       2
 
   If you don't want to assert for every result in a doctest, you can omit
   the result:
 
-      iex> pid = spawn fn -> :ok end
+      iex> pid = spawn(fn -> :ok end)
       iex> is_pid(pid)
       true
 
@@ -104,7 +104,7 @@ defmodule ExUnit.DocTest do
   The first is to rely on the fact that doctest can compare internal
   structures as long as they are at the root. So one could write:
 
-      iex> map = %{users: Enum.into([:foo, :bar], MapSet.new)}
+      iex> map = %{users: Enum.into([:foo, :bar], MapSet.new())}
       iex> map.users
       #MapSet<[:foo, :bar]>
 
@@ -116,8 +116,8 @@ defmodule ExUnit.DocTest do
   Alternatively, since doctest results are actually evaluated, you can have
   the MapSet building expression as the doctest result:
 
-      iex> %{users: Enum.into([:foo, :bar], MapSet.new)}
-      %{users: Enum.into([:foo, :bar], MapSet.new)}
+      iex> %{users: Enum.into([:foo, :bar], MapSet.new())}
+      %{users: Enum.into([:foo, :bar], MapSet.new())}
 
   The downside of this approach is that the doctest result is not really
   what users would see in the terminal.
@@ -177,7 +177,8 @@ defmodule ExUnit.DocTest do
     * `:import` - when `true`, one can test a function defined in the module
       without referring to the module name. However, this is not feasible when
       there is a clash with a module like Kernel. In these cases, `:import`
-      should be set to `false` and a full `M.f` construct should be used.
+      should be set to `false` and a full `Module.function` construct should be
+      used.
 
   ## Examples
 
@@ -407,13 +408,17 @@ defmodule ExUnit.DocTest do
     rescue
       e ->
         ex_message = "(#{inspect(e.__struct__)}) #{Exception.message(e)}"
+        message = "Doctest did not compile, got: #{ex_message}"
+
+        opts =
+          if String.valid?(expr) do
+            [message: message, expr: String.trim(expr)]
+          else
+            [message: message]
+          end
 
         quote do
-          message = "Doctest did not compile, got: #{unquote(ex_message)}"
-
-          reraise ExUnit.AssertionError,
-                  [message: message, expr: unquote(String.trim(expr))],
-                  unquote(stack)
+          reraise ExUnit.AssertionError, unquote(opts), unquote(stack)
         end
     end
   end

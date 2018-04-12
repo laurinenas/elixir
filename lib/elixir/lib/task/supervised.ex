@@ -74,8 +74,8 @@ defmodule Task.Supervised do
   end
 
   defp get_initial_call({:erlang, :apply, [fun, []]}) when is_function(fun, 0) do
-    {:module, module} = :erlang.fun_info(fun, :module)
-    {:name, name} = :erlang.fun_info(fun, :name)
+    {:module, module} = Function.info(fun, :module)
+    {:name, name} = Function.info(fun, :name)
     {module, name, 0}
   end
 
@@ -88,15 +88,15 @@ defmodule Task.Supervised do
       apply(module, fun, args)
     catch
       :error, value ->
-        reason = {value, System.stacktrace()}
+        reason = {value, __STACKTRACE__}
         exit(info, mfa, reason, reason)
 
       :throw, value ->
-        reason = {{:nocatch, value}, System.stacktrace()}
+        reason = {{:nocatch, value}, __STACKTRACE__}
         exit(info, mfa, reason, reason)
 
       :exit, value ->
-        exit(info, mfa, {value, System.stacktrace()}, value)
+        exit(info, mfa, {value, __STACKTRACE__}, value)
     end
   end
 
@@ -125,7 +125,7 @@ defmodule Task.Supervised do
   defp get_from(other), do: other
 
   defp get_running({:erlang, :apply, [fun, []]}) when is_function(fun, 0), do: {fun, []}
-  defp get_running({mod, fun, args}), do: {:erlang.make_fun(mod, fun, length(args)), args}
+  defp get_running({mod, fun, args}), do: {Function.capture(mod, fun, length(args)), args}
 
   defp get_reason({:undef, [{mod, fun, args, _info} | _] = stacktrace} = reason)
        when is_atom(mod) and is_atom(fun) do
@@ -295,9 +295,8 @@ defmodule Task.Supervised do
       next.({:cont, []})
     catch
       kind, reason ->
-        stacktrace = System.stacktrace()
         stream_close(monitor_pid, monitor_ref, timeout)
-        :erlang.raise(kind, reason, stacktrace)
+        :erlang.raise(kind, reason, __STACKTRACE__)
     else
       {:suspended, [value], next} ->
         waiting = stream_spawn(value, spawned, waiting, monitor_pid, monitor_ref, timeout)
@@ -324,10 +323,9 @@ defmodule Task.Supervised do
       reducer.(reply, acc)
     catch
       kind, reason ->
-        stacktrace = System.stacktrace()
         is_function(next) && next.({:halt, []})
         stream_close(monitor_pid, monitor_ref, timeout)
-        :erlang.raise(kind, reason, stacktrace)
+        :erlang.raise(kind, reason, __STACKTRACE__)
     end
   end
 
@@ -354,10 +352,9 @@ defmodule Task.Supervised do
           reducer.(reply, acc)
         catch
           kind, reason ->
-            stacktrace = System.stacktrace()
             is_function(next) && next.({:halt, []})
             stream_close(monitor_pid, monitor_ref, timeout)
-            :erlang.raise(kind, reason, stacktrace)
+            :erlang.raise(kind, reason, __STACKTRACE__)
         else
           pair ->
             stream_deliver(

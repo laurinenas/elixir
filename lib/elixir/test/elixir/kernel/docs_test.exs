@@ -60,10 +60,24 @@ defmodule Kernel.DocsTest do
   end
 
   test "raises on invalid @since" do
-    assert_raise ArgumentError, ~r"@since is used for documentation purposes", fn ->
+    assert_raise ArgumentError, ~r"should be a string representing the version", fn ->
       defmodule InvalidSince do
         @since 1.2
         def foo, do: :bar
+      end
+    end
+  end
+
+  test "raises on invalid @doc" do
+    assert_raise ArgumentError, ~r/When set dynamically, it should be {line, doc}/, fn ->
+      defmodule DocAttributesFormat do
+        Module.put_attribute(__MODULE__, :moduledoc, "Other")
+      end
+    end
+
+    assert_raise ArgumentError, ~r/should be a binary, a boolean, or nil/, fn ->
+      defmodule AtSyntaxDocAttributesFormat do
+        @moduledoc :not_a_binary
       end
     end
   end
@@ -178,6 +192,11 @@ defmodule Kernel.DocsTest do
 
           @doc false
           def qux(true), do: false
+
+          # We do this to avoid the deprecation warning.
+          module = Module
+          module.add_doc(__MODULE__, __ENV__.line, :def, {:nullary, 0}, [], "add_doc")
+          def nullary, do: 0
         end
       )
 
@@ -187,14 +206,15 @@ defmodule Kernel.DocsTest do
       assert Code.get_docs(SampleDocs, :type_docs) == docs[:type_docs]
       assert Code.get_docs(SampleDocs, :callback_docs) == docs[:callback_docs]
 
+      assert {_, "Module doc"} = docs[:moduledoc]
+
       assert [
                {{:bar, 1}, _, :def, [{:arg, _, nil}], "Multiple bodiless clause doc"},
                {{:baz, 1}, _, :def, [{:arg, _, nil}], "Multiple bodiless clause and docs"},
                {{:foo, 1}, _, :def, [{:arg, _, nil}], "Function doc"},
+               {{:nullary, 0}, _, :def, [], "add_doc"},
                {{:qux, 1}, _, :def, [{:bool, _, Elixir}], false}
              ] = docs[:docs]
-
-      assert {_, "Module doc"} = docs[:moduledoc]
 
       assert [{{:bar, 1}, _, :opaque, "Opaque type doc"}, {{:foo, 1}, _, :type, "Type doc"}] =
                docs[:type_docs]
@@ -206,5 +226,43 @@ defmodule Kernel.DocsTest do
                {{:qux, 1}, _, :macrocallback, "Macrocallback doc"}
              ] = docs[:callback_docs]
     end
+  end
+
+  test "@impl true doesn't set @doc false if previous implementation has docs" do
+    write_beam(
+      defmodule Docs do
+        defmodule SampleBehaviour do
+          @callback foo(any()) :: any()
+          @callback bar() :: any()
+          @callback baz() :: any()
+        end
+
+        @behaviour SampleBehaviour
+
+        @doc "Foo docs"
+        def foo(nil), do: nil
+
+        @impl true
+        def foo(_), do: false
+
+        @impl true
+        def bar(), do: true
+
+        @doc "Baz docs"
+        @impl true
+        def baz(), do: true
+
+        def fuz(), do: true
+      end
+    )
+
+    docs = Code.get_docs(Docs, :all)
+
+    assert [
+             {{:bar, 0}, _, :def, [], false},
+             {{:baz, 0}, _, :def, [], "Baz docs"},
+             {{:foo, 1}, _, :def, [{:arg1, [], _}], "Foo docs"},
+             {{:fuz, 0}, _, :def, [], nil}
+           ] = docs[:docs]
   end
 end

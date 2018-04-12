@@ -253,21 +253,17 @@ defmodule LoggerTest do
 
     # This should not warn, even if the Logger call is purged from the AST.
     assert ExUnit.CaptureIO.capture_io(:stderr, fn ->
-             Code.eval_string("""
              defmodule Unused do
                require Logger
 
-               def hello(a, b) do
-                 Logger.debug(["a: ", inspect(a), ", b: ", inspect(b)])
+               def hello(a, b, c) do
+                 Logger.debug(["a: ", inspect(a), ", b: ", inspect(b)], c: c)
                end
              end
-             """)
            end) == ""
 
-    assert Unused.hello(1, 2) == :ok
+    assert LoggerTest.Unused.hello(1, 2, 3) == :ok
   after
-    :code.purge(Unused)
-    :code.delete(Unused)
     Logger.configure(compile_time_purge_level: :debug)
   end
 
@@ -336,16 +332,22 @@ defmodule LoggerTest do
            end) =~ "he�lo"
   end
 
-  test "log/2 relies on sync_threshold" do
-    Logger.remove_backend(:console)
-    Logger.configure(sync_threshold: 0)
-    for _ <- 1..1000, do: Logger.log(:info, "some message")
-  after
-    Logger.configure(sync_threshold: 20)
-    Logger.add_backend(:console)
+  test "logging something that is not a binary or chardata fails right away" do
+    assert_raise Protocol.UndefinedError, "protocol String.Chars not implemented for %{}", fn ->
+      Logger.log(:debug, %{})
+    end
+
+    message =
+      "cannot truncate chardata because it contains something that is not valid chardata: %{}"
+
+    # Something that looks like chardata but then inside isn't still raises an error, but a
+    # different one.
+    assert_raise ArgumentError, message, fn ->
+      Logger.log(:debug, [%{}])
+    end
   end
 
-  test "stop the application silently" do
+  test "stops the application silently" do
     Application.put_env(:logger, :backends, [])
     Logger.App.stop()
     Application.start(:logger)
@@ -362,22 +364,27 @@ defmodule LoggerTest do
     Application.start(:logger)
   end
 
-  test "restarts Logger.Config on Logger exits" do
-    Process.whereis(Logger) |> Process.exit(:kill)
-    wait_for_logger()
-    wait_for_handler(Logger, Logger.Config)
-    wait_for_handler(:error_logger, Logger.ErrorHandler)
-  end
+  test "configure/1 sets options" do
+    Logger.configure(sync_threshold: 10)
+    Logger.configure(truncate: 4048)
+    Logger.configure(utc_log: true)
+    Logger.configure(discard_threshold: 10_000)
+    Logger.configure(translator_inspect_opts: [limit: 3])
 
-  test "Logger.Config updates config on config_change/3" do
-    :ok = Logger.configure(level: :debug)
+    assert Application.get_env(:logger, :sync_threshold) == 10
+    assert Application.get_env(:logger, :utc_log) == true
+    assert Application.get_env(:logger, :truncate) == 4048
+    assert Application.get_env(:logger, :discard_threshold) == 10_000
+    assert Application.get_env(:logger, :translator_inspect_opts) == [limit: 3]
 
-    try do
-      Application.put_env(:logger, :level, :error)
-      assert Logger.App.config_change([level: :error], [], []) === :ok
-      assert Logger.level() === :error
-    after
-      Logger.configure(level: :debug)
-    end
+    logger_data = Logger.Config.__data__()
+    assert logger_data.truncate == 4048
+    assert logger_data.utc_log == true
+  after
+    Logger.configure(sync_threshold: 20)
+    Logger.configure(truncate: 8096)
+    Logger.configure(utc_log: false)
+    Logger.configure(discard_threshold: 500)
+    Logger.configure(translator_inspect_opts: [])
   end
 end

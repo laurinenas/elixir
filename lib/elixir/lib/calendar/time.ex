@@ -55,6 +55,7 @@ defmodule Time do
       true
 
   """
+  @since "1.4.0"
   @spec utc_now(Calendar.calendar()) :: t
   def utc_now(calendar \\ Calendar.ISO) do
     {:ok, _, time, microsecond} = Calendar.ISO.from_unix(:os.system_time(), :native)
@@ -287,15 +288,23 @@ defmodule Time do
 
   """
   @spec to_iso8601(Calendar.time(), :extended | :basic) :: String.t()
-  def to_iso8601(time, format \\ :extended) when format in [:extended, :basic] do
+  def to_iso8601(time, format \\ :extended)
+
+  def to_iso8601(%{calendar: Calendar.ISO} = time, format) when format in [:extended, :basic] do
     %{
       hour: hour,
       minute: minute,
       second: second,
       microsecond: microsecond
-    } = convert!(time, Calendar.ISO)
+    } = time
 
     Calendar.ISO.time_to_iso8601(hour, minute, second, microsecond, format)
+  end
+
+  def to_iso8601(%{calendar: _} = time, format) when format in [:extended, :basic] do
+    time
+    |> convert!(Calendar.ISO)
+    |> to_iso8601(format)
   end
 
   @doc """
@@ -379,7 +388,7 @@ defmodule Time do
       ~T[17:30:00.000000]
       iex> Time.add(~T[11:00:00.005], 2400)
       ~T[11:40:00.005000]
-      iex> Time.add(~T[00:00:00], 86399999, :millisecond)
+      iex> Time.add(~T[00:00:00], 86_399_999, :millisecond)
       ~T[23:59:59.999000]
       iex> Time.add(~T[17:10:05], 86400)
       ~T[17:10:05.000000]
@@ -387,6 +396,7 @@ defmodule Time do
       ~T[22:59:00.000000]
 
   """
+  @since "1.6.0"
   @spec add(Calendar.time(), integer, System.time_unit()) :: t
   def add(%{calendar: calendar} = time, number, unit \\ :second) when is_integer(number) do
     number = System.convert_time_unit(number, unit, :microsecond)
@@ -433,6 +443,7 @@ defmodule Time do
       :gt
 
   """
+  @since "1.4.0"
   @spec compare(Calendar.time(), Calendar.time()) :: :lt | :eq | :gt
   def compare(%{calendar: calendar} = time1, %{calendar: calendar} = time2) do
     %{hour: hour1, minute: minute1, second: second1, microsecond: {microsecond1, _}} = time1
@@ -472,6 +483,7 @@ defmodule Time do
       {:ok, %Time{calendar: Calendar.Holocene, hour: 13, minute: 30, second: 15, microsecond: {0, 0}}}
 
   """
+  @since "1.5.0"
   @spec convert(Calendar.time(), Calendar.calendar()) :: {:ok, t} | {:error, atom}
 
   # Keep it multiline for proper function clause errors.
@@ -527,6 +539,7 @@ defmodule Time do
       %Time{calendar: Calendar.Holocene, hour: 13, minute: 30, second: 15, microsecond: {0, 0}}
 
   """
+  @since "1.5.0"
   @spec convert!(Calendar.time(), Calendar.calendar()) :: t
   def convert!(time, calendar) do
     case convert(time, calendar) do
@@ -568,7 +581,7 @@ defmodule Time do
 
       # Two `NaiveDateTime` structs could have big differences in the date
       # but only the time part is considered.
-      iex> Time.diff(~N[2017-01-01 00:29:12], (~N[1900-02-03 00:29:10]))
+      iex> Time.diff(~N[2017-01-01 00:29:12], ~N[1900-02-03 00:29:10])
       2
 
       iex> Time.diff(~T[00:29:12], ~T[00:29:10], :microsecond)
@@ -577,6 +590,7 @@ defmodule Time do
       -2_000_000
 
   """
+  @since "1.5.0"
   @spec diff(Calendar.time(), Calendar.time(), System.time_unit()) :: integer
   def diff(time1, time2, unit \\ :second) do
     fraction1 = to_day_fraction(time1)
@@ -602,6 +616,7 @@ defmodule Time do
       ~T[01:01:01]
 
   """
+  @since "1.6.0"
   @spec truncate(t(), :microsecond | :millisecond | :second) :: t()
   def truncate(%Time{microsecond: microsecond} = time, precision) do
     %{time | microsecond: Calendar.truncate(microsecond, precision)}

@@ -23,10 +23,17 @@ defmodule GenServer do
 
         # Callbacks
 
+        @impl true
+        def init(stack) do
+          {:ok, stack}
+        end
+
+        @impl true
         def handle_call(:pop, _from, [h | t]) do
           {:reply, h, t}
         end
 
+        @impl true
         def handle_cast({:push, item}, state) do
           {:noreply, [item | state]}
         end
@@ -45,7 +52,7 @@ defmodule GenServer do
       GenServer.call(pid, :pop)
       #=> :world
 
-  We start our `Stack` by calling `start_link/3`, passing the module
+  We start our `Stack` by calling `start_link/2`, passing the module
   with the server implementation and its initial argument (a list
   representing the stack containing the item `:hello`). We can primarily
   interact with the server by sending two types of messages. **call**
@@ -78,7 +85,7 @@ defmodule GenServer do
 
   See the `Supervisor` docs for more information.
 
-  ## Name Registration
+  ## Name registration
 
   Both `start_link/3` and `start/3` support the `GenServer` to register
   a name on start via the `:name` option. Registered names are also
@@ -87,7 +94,7 @@ defmodule GenServer do
     * an atom - the GenServer is registered locally with the given name
       using `Process.register/2`.
 
-    * `{:global, term}`- the GenServer is registered globally with the given
+    * `{:global, term}` - the GenServer is registered globally with the given
       term using the functions in the [`:global` module](http://www.erlang.org/doc/man/global.html).
 
     * `{:via, module, term}` - the GenServer is registered with the given
@@ -151,21 +158,14 @@ defmodule GenServer do
 
         # Server (callbacks)
 
+        @impl true
         def handle_call(:pop, _from, [h | t]) do
           {:reply, h, t}
         end
 
-        def handle_call(request, from, state) do
-          # Call the default implementation from GenServer
-          super(request, from, state)
-        end
-
+        @impl true
         def handle_cast({:push, item}, state) do
           {:noreply, [item | state]}
-        end
-
-        def handle_cast(request, state) do
-          super(request, state)
         end
       end
 
@@ -181,7 +181,7 @@ defmodule GenServer do
   the GenServer callbacks as doing so will cause the GenServer to misbehave.
 
   Besides the synchronous and asynchronous communication provided by `call/3`
-  and `cast/2`, "regular" messages sent by functions such `Kernel.send/2`,
+  and `cast/2`, "regular" messages sent by functions such as `Kernel.send/2`,
   `Process.send_after/4` and similar, can be handled inside the `c:handle_info/2`
   callback.
 
@@ -196,11 +196,13 @@ defmodule GenServer do
           GenServer.start_link(__MODULE__, %{})
         end
 
+        @impl true
         def init(state) do
           schedule_work() # Schedule work to be performed on start
           {:ok, state}
         end
 
+        @impl true
         def handle_info(:work, state) do
           # Do the desired work here
           schedule_work() # Reschedule once more
@@ -279,7 +281,7 @@ defmodule GenServer do
 
   ## Learn more
 
-  If you wish to find out more about gen servers, the Elixir Getting Started
+  If you wish to find out more about GenServers, the Elixir Getting Started
   guide provides a tutorial-like introduction. The documentation and links
   in Erlang can also provide extra insight.
 
@@ -567,18 +569,21 @@ defmodule GenServer do
 
   @doc false
   defmacro __using__(opts) do
-    quote location: :keep do
+    quote location: :keep, bind_quoted: [opts: opts] do
       @behaviour GenServer
-      @opts unquote(opts)
 
-      @doc false
+      @doc """
+      Returns a specification to start this module under a supervisor.
+
+      See `Supervisor`.
+      """
       def child_spec(arg) do
         default = %{
           id: __MODULE__,
           start: {__MODULE__, :start_link, [arg]}
         }
 
-        Supervisor.child_spec(default, @opts)
+        Supervisor.child_spec(default, unquote(Macro.escape(opts)))
       end
 
       defoverridable child_spec: 1
@@ -661,8 +666,8 @@ defmodule GenServer do
             {:ok, args}
           end
 
-      But you want to define your own implementation that converts the \
-      arguments given to GenServer.start_link/3 to the server state
+      You can copy the implementation above or define your own that converts \
+      the arguments given to GenServer.start_link/3 to the server state.
       """
 
       :elixir_errors.warn(env.line, env.file, message)
@@ -886,7 +891,8 @@ defmodule GenServer do
   See `multi_call/4` for more information.
   """
   @spec abcast([node], name :: atom, term) :: :abcast
-  def abcast(nodes \\ [node() | Node.list()], name, request) when is_list(nodes) and is_atom(name) do
+  def abcast(nodes \\ [node() | Node.list()], name, request)
+      when is_list(nodes) and is_atom(name) do
     msg = cast_msg(request)
     _ = for node <- nodes, do: do_send({name, node}, msg)
     :abcast

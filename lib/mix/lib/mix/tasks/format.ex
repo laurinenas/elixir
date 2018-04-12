@@ -13,58 +13,68 @@ defmodule Mix.Tasks.Format do
 
   ## Formatting options
 
-  Formatting is done with the `Code.format_string!/2` function.
-  For complete list of formatting options please refer to its
-  description.
-  A `.formatter.exs` file can also be defined for customizing input
-  files and the formatter itself.
+  The formatter will read a `.formatter.exs` in the current directory for
+  formatter configuration. Evaluating this file should return a keyword list.
+
+  Here is an example `.formatter.exs` that works as a starting point:
+
+      [
+        inputs: ["{mix,.formatter}.exs", "{config,lib,test}/**/*.{ex,exs}"]
+      ]
+
+  Besides the options listed in `Code.format_string!/2`, the `.formatter.exs`
+  supports the following options:
+
+    * `:inputs` (a list of paths and patterns) - specifies the default inputs
+      to be used by this task. For example, `["mix.exs", "{config,lib,test}/**/*.{ex,exs}"]`.
+
+    * `:subdirectories` (a list of paths and patterns) - specifies subdirectories
+      that have their own formatting rules. Each subdirectory should have a
+      `.formatter.exs` that configures how entries in that subdirectory should be
+      formatted as. Configuration between `.formatter.exs` are not shared nor
+      inherited. If a `.formatter.exs` lists "lib/app" as a subdirectory, the rules
+      in `.formatter.exs` won't be available in `lib/app/.formatter.exs`.
+      Note that the parent `.formatter.exs` must not specify files inside the "lib/app"
+      subdirectory in its `:inputs` configuration. If this happens, the behaviour of
+      which formatter configuration will be picked is unspecified.
+
+    * `:import_deps` (a list of dependencies as atoms) - specifies a list
+       of dependencies whose formatter configuration will be imported.
+       When specified, the formatter should run in the same directory as
+       the `mix.exs` file that defines those dependencies. See the "Importing
+       dependencies configuration" section below for more information.
+
+    * `:export` (a keyword list) - specifies formatter configuration to be exported.
+      See the "Importing dependencies configuration" section below.
 
   ## Task-specific options
 
     * `--check-formatted` - check that the file is already formatted.
       This is useful in pre-commit hooks and CI scripts if you want to
-      reject contributions with unformatted code. However, keep in mind,
-      that the formatting output may differ between Elixir versions as
+      reject contributions with unformatted code. However keep in mind
+      that the formatted output may differ between Elixir versions as
       improvements and fixes are applied to the formatter.
 
-    * `--check-equivalent` - check if the file after formatting has the
-      same AST. If the ASTs are not equivalent, it is a bug in the code
-      formatter. This option is recommended if you are automatically
-      formatting files.
+    * `--check-equivalent` - check if the files after formatting have the
+      same AST as before formatting. If the ASTs are not equivalent,
+      it is a bug in the code formatter. This option is recommended if you
+      are automatically formatting files.
 
     * `--dry-run` - do not save files after formatting.
 
-    * `--dot-formatter` - the file with formatter configuration.
-      Defaults to `.formatter.exs` if one is available, see next section.
+    * `--dot-formatter` - path to the file with formatter configuration.
+      Defaults to `.formatter.exs` if one is available. See the "`.formatter.exs`"
+      section for more information.
 
   If any of the `--check-*` flags are given and a check fails, the formatted
-  contents won't be written to disk nor printed to stdout.
-
-  ## `.formatter.exs`
-
-  The formatter will read a `.formatter.exs` in the current directory for
-  formatter configuration. It should return a keyword list with any of the
-  options supported by `Code.format_string!/2`.
-
-  The `.formatter.exs` also supports other options:
-
-    * `:inputs` (a list of paths and patterns) - specifies the default inputs
-      to be used by this task. For example, `["mix.exs", "{config,lib,test}/**/*.{ex,exs}"]`.
-
-    * `:import_deps` (a list of dependencies as atoms) - specifies a list
-       of dependencies whose formatter configuration will be imported.
-       See the "Importing dependencies configuration" section below for more
-       information.
-
-    * `:export` (a keyword list) - specifies formatter configuration to be exported. See the
-      "Importing dependencies configuration" section below.
+  contents won't be written to disk nor printed to standard output.
 
   ## When to format code
 
-  We recommend developers to format code directly in their editors. Either
-  automatically on save or via an explicit command/key binding. If such option
-  is not yet available in your editor of choice, adding the required integration
-  is relatively simple as it is a matter of invoking
+  We recommend developers to format code directly in their editors, either
+  automatically when saving a file or via an explicit command or key binding. If
+  such option is not yet available in your editor of choice, adding the required
+  integration is usually a matter of invoking:
 
       cd $project && mix format $file
 
@@ -72,7 +82,7 @@ defmodule Mix.Tasks.Format do
   project.
 
   It is also possible to format code across the whole project by passing a list
-  of patterns and files to `mix format`, as showed at the top of this task
+  of patterns and files to `mix format`, as shown at the top of this task
   documentation. This list can also be set in the `.formatter.exs` under the
   `:inputs` key.
 
@@ -80,15 +90,15 @@ defmodule Mix.Tasks.Format do
 
   This task supports importing formatter configuration from dependencies.
 
-  A dependency that wants to export formatter configuration needs to have a `.formatter.exs` file
-  at the root of the project. In this file, the dependency can export a `:export` option with
-  configuration to export. For now, only one option is supported under `:export`:
-  `:locals_without_parens` (whose value has the same shape as the value of the
-  `:locals_without_parens` in `Code.format_string!/2`).
+  A dependency that wants to export formatter configuration needs to have a
+  `.formatter.exs` file at the root of the project. In this file, the dependency
+  can export a `:export` option with configuration to export. For now, only one
+  option is supported under `:export`: `:locals_without_parens` (whose value has
+  the same shape as the value of the `:locals_without_parens` in `Code.format_string!/2`).
 
-  The functions listed under `:locals_without_parens` in the `:export` option of a dependency
-  can be imported in a project by listing that dependency in the `:import_deps`
-  option of the formatter configuration file of the project.
+  The functions listed under `:locals_without_parens` in the `:export` option of
+  a dependency can be imported in a project by listing that dependency in the
+  `:import_deps` option of the formatter configuration file of the project.
 
   For example, consider I have a project `my_app` that depends on `my_dep`.
   `my_dep` wants to export some configuration, so `my_dep/.formatter.exs`
@@ -121,94 +131,153 @@ defmodule Mix.Tasks.Format do
     dry_run: :boolean
   ]
 
-  @deps_manifest "cached_formatter_deps"
+  @manifest "cached_dot_formatter"
+  @manifest_vsn 1
 
   def run(args) do
     {opts, args} = OptionParser.parse!(args, strict: @switches)
-    formatter_opts = eval_dot_formatter(opts)
-    formatter_opts = fetch_deps_opts(formatter_opts)
+    {dot_formatter, formatter_opts} = eval_dot_formatter(opts)
+
+    {formatter_opts_and_subs, _sources} =
+      eval_deps_and_subdirectories(dot_formatter, [], formatter_opts, [dot_formatter])
 
     args
-    |> expand_args(formatter_opts)
-    |> Task.async_stream(&format_file(&1, opts, formatter_opts), ordered: false, timeout: 30000)
+    |> expand_args(dot_formatter, formatter_opts_and_subs)
+    |> Task.async_stream(&format_file(&1, opts), ordered: false, timeout: 30000)
     |> Enum.reduce({[], [], []}, &collect_status/2)
     |> check!()
   end
 
+  @doc """
+  Returns formatter options to be used for the given file.
+  """
+  def formatter_opts_for_file(file, opts \\ []) do
+    {dot_formatter, formatter_opts} = eval_dot_formatter(opts)
+
+    {formatter_opts_and_subs, _sources} =
+      eval_deps_and_subdirectories(dot_formatter, [], formatter_opts, [dot_formatter])
+
+    split = file |> Path.relative_to_cwd() |> Path.split()
+    find_formatter_opts_for_file(split, formatter_opts_and_subs)
+  end
+
   defp eval_dot_formatter(opts) do
-    case dot_formatter(opts) do
-      {:ok, dot_formatter} -> eval_file_with_keyword_list(dot_formatter)
-      :error -> []
-    end
-  end
-
-  defp dot_formatter(opts) do
     cond do
-      dot_formatter = opts[:dot_formatter] -> {:ok, dot_formatter}
-      File.regular?(".formatter.exs") -> {:ok, ".formatter.exs"}
-      true -> :error
-    end
-  end
+      dot_formatter = opts[:dot_formatter] ->
+        {dot_formatter, eval_file_with_keyword_list(dot_formatter)}
 
-  # This function reads exported configuration from the imported dependencies and deals with
-  # caching the result of reading such configuration in a manifest file.
-  defp fetch_deps_opts(formatter_opts) do
-    deps = Keyword.get(formatter_opts, :import_deps, [])
-
-    cond do
-      deps == [] ->
-        formatter_opts
-
-      is_list(deps) ->
-        # Since we have dependencies listed, we write the manifest even if those dependencies
-        # don't export anything so that we avoid lookups everytime.
-        deps_manifest = Path.join(Mix.Project.manifest_path(), @deps_manifest)
-
-        dep_parenless_calls =
-          if deps_dot_formatters_stale?(deps_manifest) do
-            dep_parenless_calls = eval_deps_opts(deps)
-            write_deps_manifest(deps_manifest, dep_parenless_calls)
-            dep_parenless_calls
-          else
-            read_deps_manifest(deps_manifest)
-          end
-
-        Keyword.update(
-          formatter_opts,
-          :locals_without_parens,
-          dep_parenless_calls,
-          &(&1 ++ dep_parenless_calls)
-        )
+      File.regular?(".formatter.exs") ->
+        {".formatter.exs", eval_file_with_keyword_list(".formatter.exs")}
 
       true ->
-        Mix.raise("Expected :import_deps to return a list of dependencies, got: #{inspect(deps)}")
+        {".formatter.exs", []}
     end
   end
 
-  defp deps_dot_formatters_stale?(deps_manifest) do
-    Mix.Utils.stale?([".formatter.exs" | Mix.Project.config_files()], [deps_manifest])
+  # This function reads exported configuration from the imported
+  # dependencies and subdirectories and deals with caching the result
+  # of reading such configuration in a manifest file.
+  defp eval_deps_and_subdirectories(dot_formatter, prefix, formatter_opts, sources) do
+    deps = Keyword.get(formatter_opts, :import_deps, [])
+    subs = Keyword.get(formatter_opts, :subdirectories, [])
+
+    if not is_list(deps) do
+      Mix.raise("Expected :import_deps to return a list of dependencies, got: #{inspect(deps)}")
+    end
+
+    if not is_list(subs) do
+      Mix.raise("Expected :subdirectories to return a list of directories, got: #{inspect(subs)}")
+    end
+
+    if deps == [] and subs == [] do
+      {{formatter_opts, []}, sources}
+    else
+      manifest = Path.join(Mix.Project.manifest_path(), @manifest)
+
+      maybe_cache_in_manifest(dot_formatter, manifest, fn ->
+        {subdirectories, sources} = eval_subs_opts(subs, prefix, sources)
+        {{eval_deps_opts(formatter_opts, deps), subdirectories}, sources}
+      end)
+    end
   end
 
-  defp read_deps_manifest(deps_manifest) do
-    deps_manifest |> File.read!() |> :erlang.binary_to_term()
+  defp maybe_cache_in_manifest(dot_formatter, manifest, fun) do
+    cond do
+      is_nil(Mix.Project.get()) or dot_formatter != ".formatter.exs" -> fun.()
+      entry = read_manifest(manifest) -> entry
+      true -> write_manifest!(manifest, fun.())
+    end
   end
 
-  defp write_deps_manifest(deps_manifest, parenless_calls) do
-    File.mkdir_p!(Path.dirname(deps_manifest))
-    File.write!(deps_manifest, :erlang.term_to_binary(parenless_calls))
+  def read_manifest(manifest) do
+    with {:ok, binary} <- File.read(manifest),
+         {:ok, {@manifest_vsn, entry, sources}} <- safe_binary_to_term(binary),
+         expanded_sources = Enum.flat_map(sources, &Path.wildcard(&1, match_dot: true)),
+         false <- Mix.Utils.stale?(Mix.Project.config_files() ++ expanded_sources, [manifest]) do
+      {entry, sources}
+    else
+      _ -> nil
+    end
   end
 
-  defp eval_deps_opts(deps) do
+  defp safe_binary_to_term(binary) do
+    {:ok, :erlang.binary_to_term(binary)}
+  rescue
+    _ -> :error
+  end
+
+  defp write_manifest!(manifest, {entry, sources}) do
+    File.mkdir_p!(Path.dirname(manifest))
+    File.write!(manifest, :erlang.term_to_binary({@manifest_vsn, entry, sources}))
+    {entry, sources}
+  end
+
+  defp eval_deps_opts(formatter_opts, []) do
+    formatter_opts
+  end
+
+  defp eval_deps_opts(formatter_opts, deps) do
     deps_paths = Mix.Project.deps_paths()
 
-    for dep <- deps,
-        dep_path = assert_valid_dep_and_fetch_path(dep, deps_paths),
-        dep_dot_formatter = Path.join(dep_path, ".formatter.exs"),
-        File.regular?(dep_dot_formatter),
-        dep_opts = eval_file_with_keyword_list(dep_dot_formatter),
-        parenless_call <- dep_opts[:export][:locals_without_parens] || [],
-        uniq: true,
-        do: parenless_call
+    parenless_calls =
+      for dep <- deps,
+          dep_path = assert_valid_dep_and_fetch_path(dep, deps_paths),
+          dep_dot_formatter = Path.join(dep_path, ".formatter.exs"),
+          File.regular?(dep_dot_formatter),
+          dep_opts = eval_file_with_keyword_list(dep_dot_formatter),
+          parenless_call <- dep_opts[:export][:locals_without_parens] || [],
+          uniq: true,
+          do: parenless_call
+
+    Keyword.update(
+      formatter_opts,
+      :locals_without_parens,
+      parenless_calls,
+      &(&1 ++ parenless_calls)
+    )
+  end
+
+  defp eval_subs_opts(subs, prefix, sources) do
+    {subs, sources} =
+      Enum.flat_map_reduce(subs, sources, fn sub, sources ->
+        prefix = Path.join(prefix ++ [sub])
+        {Path.wildcard(prefix), [Path.join(prefix, ".formatter.exs") | sources]}
+      end)
+
+    Enum.flat_map_reduce(subs, sources, fn sub, sources ->
+      sub_formatter = Path.join(sub, ".formatter.exs")
+
+      if File.exists?(sub_formatter) do
+        formatter_opts = eval_file_with_keyword_list(sub_formatter)
+
+        {formatter_opts_and_subs, sources} =
+          eval_deps_and_subdirectories(:in_memory, [sub], formatter_opts, sources)
+
+        {[{sub, formatter_opts_and_subs}], sources}
+      else
+        {[], sources}
+      end
+    end)
   end
 
   defp assert_valid_dep_and_fetch_path(dep, deps_paths) when is_atom(dep) do
@@ -226,7 +295,7 @@ defmodule Mix.Tasks.Format do
       :error ->
         Mix.raise(
           "Unknown dependency #{inspect(dep)} given to :import_deps in the formatter configuration. " <>
-            "The dependency is not listed in your mix.exs file"
+            "The dependency is not listed in your mix.exs for environment #{inspect(Mix.env())}"
         )
     end
   end
@@ -245,22 +314,20 @@ defmodule Mix.Tasks.Format do
     opts
   end
 
-  defp expand_args([], formatter_opts) do
-    if inputs = formatter_opts[:inputs] do
-      expand_files_and_patterns(List.wrap(inputs), ".formatter.exs")
-    else
+  defp expand_args([], dot_formatter, formatter_opts_and_subs) do
+    if no_entries_in_formatter_opts?(formatter_opts_and_subs) do
       Mix.raise(
         "Expected one or more files/patterns to be given to mix format " <>
-          "or for a .formatter.exs to exist with an :inputs key"
+          "or for a .formatter.exs to exist with an :inputs or :subdirectories key"
       )
     end
+
+    dot_formatter
+    |> expand_dot_inputs([], formatter_opts_and_subs, %{})
+    |> Enum.uniq()
   end
 
-  defp expand_args(files_and_patterns, _formatter_opts) do
-    expand_files_and_patterns(files_and_patterns, "command line")
-  end
-
-  defp expand_files_and_patterns(files_and_patterns, context) do
+  defp expand_args(files_and_patterns, _dot_formatter, {formatter_opts, subs}) do
     files =
       for file_or_pattern <- files_and_patterns,
           file <- stdin_or_wildcard(file_or_pattern),
@@ -269,12 +336,48 @@ defmodule Mix.Tasks.Format do
 
     if files == [] do
       Mix.raise(
-        "Could not find a file to format. The files/patterns from #{context} " <>
+        "Could not find a file to format. The files/patterns given to command line " <>
           "did not point to any existing file. Got: #{inspect(files_and_patterns)}"
       )
     end
 
-    files
+    for file <- files do
+      if file == :stdin do
+        {file, formatter_opts}
+      else
+        split = file |> Path.relative_to_cwd() |> Path.split()
+        {file, find_formatter_opts_for_file(split, {formatter_opts, subs})}
+      end
+    end
+  end
+
+  defp expand_dot_inputs(dot_formatter, prefix, {formatter_opts, subs}, acc) do
+    if no_entries_in_formatter_opts?({formatter_opts, subs}) do
+      Mix.raise("Expected :inputs or :subdirectories key in #{dot_formatter}")
+    end
+
+    map =
+      for input <- List.wrap(formatter_opts[:inputs]),
+          file <- Path.wildcard(Path.join(prefix ++ [input])),
+          do: {file, formatter_opts},
+          into: %{}
+
+    Enum.reduce(subs, Map.merge(acc, map), fn {sub, formatter_opts_and_subs}, acc ->
+      sub_formatter = Path.join(sub, ".formatter.exs")
+      expand_dot_inputs(sub_formatter, [sub], formatter_opts_and_subs, acc)
+    end)
+  end
+
+  defp find_formatter_opts_for_file(split, {formatter_opts, subs}) do
+    Enum.find_value(subs, formatter_opts, fn {sub, formatter_opts_and_subs} ->
+      if List.starts_with?(split, Path.split(sub)) do
+        find_formatter_opts_for_file(split, formatter_opts_and_subs)
+      end
+    end)
+  end
+
+  defp no_entries_in_formatter_opts?({formatter_opts, subs}) do
+    is_nil(formatter_opts[:inputs]) and subs == []
   end
 
   defp stdin_or_wildcard("-"), do: [:stdin]
@@ -288,7 +391,7 @@ defmodule Mix.Tasks.Format do
     {File.read!(file), file: file}
   end
 
-  defp format_file(file, task_opts, formatter_opts) do
+  defp format_file({file, formatter_opts}, task_opts) do
     {input, extra_opts} = read_file(file)
     output = IO.iodata_to_binary([Code.format_string!(input, extra_opts ++ formatter_opts), ?\n])
 
@@ -311,8 +414,7 @@ defmodule Mix.Tasks.Format do
     end
   rescue
     exception ->
-      stacktrace = System.stacktrace()
-      {:exit, file, exception, stacktrace}
+      {:exit, file, exception, __STACKTRACE__}
   end
 
   defp write_or_print(file, input, output) do

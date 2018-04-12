@@ -49,6 +49,8 @@ defmodule Kernel do
 
     * `Atom` - literal constants with a name (`true`, `false`, and `nil` are atoms)
     * `Float` - numbers with floating point precision
+    * `Function` - a reference to code chunk, created with the `Kernel.SpecialForms.fn/2`
+      special form
     * `Integer` - whole numbers (not fractions)
     * `List` - collections of a variable number of elements (linked lists)
     * `Map` - collections of key-value pairs
@@ -56,13 +58,11 @@ defmodule Kernel do
     * `Port` - mechanisms to interact with the external world
     * `Tuple` - collections of a fixed number of elements
 
-  There are three data types without an accompanying module:
+  There are two data types without an accompanying module:
 
     * Bitstrings - a sequence of bits, created with `Kernel.SpecialForms.<<>>/1`.
       When the number of bits is divisible by 8, they are called binaries and can
       be manipulated with Erlang's `:binary` module
-    * Function - a reference to code chunk, created with the `Kernel.SpecialForms.fn/2`
-      special form
     * Reference - a unique value in the runtime system, created with `make_ref/0`
 
   ### Data types
@@ -160,6 +160,17 @@ defmodule Kernel do
   Those functions will be explicitly marked in their docs as
   "inlined by the compiler".
   """
+
+  # We need this check only for bootstrap purposes.
+  # Once Kernel is loaded and we recompile, it is a no-op.
+  @compile {:inline, bootstrapped?: 1}
+  case :code.ensure_loaded(Kernel) do
+    {:module, _} ->
+      defp bootstrapped?(_), do: true
+
+    {:error, _} ->
+      defp bootstrapped?(module), do: :code.ensure_loaded(module) == {:module, module}
+  end
 
   ## Delegations to Erlang with inlining (macros)
 
@@ -425,9 +436,9 @@ defmodule Kernel do
 
   ## Examples
 
-      iex> is_binary "foo"
+      iex> is_binary("foo")
       true
-      iex> is_binary <<1::3>>
+      iex> is_binary(<<1::3>>)
       false
 
   """
@@ -443,9 +454,9 @@ defmodule Kernel do
 
   ## Examples
 
-      iex> is_bitstring "foo"
+      iex> is_bitstring("foo")
       true
-      iex> is_bitstring <<1::3>>
+      iex> is_bitstring(<<1::3>>)
       true
 
   """
@@ -493,9 +504,9 @@ defmodule Kernel do
 
   ## Examples
 
-      iex> is_function(fn(x) -> x * 2 end, 1)
+      iex> is_function(fn x -> x * 2 end, 1)
       true
-      iex> is_function(fn(x) -> x * 2 end, 2)
+      iex> is_function(fn x -> x * 2 end, 2)
       false
 
   """
@@ -785,7 +796,7 @@ defmodule Kernel do
 
   ## Examples
 
-      iex> send self(), :hello
+      iex> send(self(), :hello)
       :hello
 
   """
@@ -1034,7 +1045,7 @@ defmodule Kernel do
 
   ## Examples
 
-      iex> tuple_size {:a, :b, :c}
+      iex> tuple_size({:a, :b, :c})
       3
 
   """
@@ -1582,7 +1593,7 @@ defmodule Kernel do
       "foobar"
 
   The `<>/2` operator can also be used in pattern matching (and guard clauses) as
-  long as the first part is a literal binary:
+  long as the left argument is a literal binary:
 
       iex> "foo" <> x = "foobar"
       iex> x
@@ -1592,26 +1603,68 @@ defmodule Kernel do
 
   """
   defmacro left <> right do
-    concats = extract_concatenations({:<>, [], [left, right]})
+    concats = extract_concatenations({:<>, [], [left, right]}, __CALLER__)
     quote(do: <<unquote_splicing(concats)>>)
   end
 
   # Extracts concatenations in order to optimize many
   # concatenations into one single clause.
-  defp extract_concatenations({:<>, _, [left, right]}) do
-    [wrap_concatenation(left) | extract_concatenations(right)]
+  defp extract_concatenations({:<>, _, [left, right]}, caller) do
+    [wrap_concatenation(left, :left, caller) | extract_concatenations(right, caller)]
   end
 
-  defp extract_concatenations(other) do
-    [wrap_concatenation(other)]
+  defp extract_concatenations(other, caller) do
+    [wrap_concatenation(other, :right, caller)]
   end
 
-  defp wrap_concatenation(binary) when is_binary(binary) do
+  defp wrap_concatenation(binary, _side, _caller) when is_binary(binary) do
     binary
   end
 
-  defp wrap_concatenation(other) do
-    {:::, [], [other, {:binary, [], nil}]}
+  defp wrap_concatenation(literal, _side, _caller)
+       when is_list(literal) or is_atom(literal) or is_integer(literal) or is_float(literal) do
+    :erlang.error(
+      ArgumentError.exception(
+        "expected binary argument in <> operator but got: #{Macro.to_string(literal)}"
+      )
+    )
+  end
+
+  defp wrap_concatenation(other, side, caller) do
+    expanded = expand_concat_argument(other, side, caller)
+    {:::, [], [expanded, {:binary, [], nil}]}
+  end
+
+  defp expand_concat_argument(arg, :left, %{context: :match} = caller) do
+    expanded_arg =
+      case bootstrapped?(Macro) do
+        true -> Macro.expand(arg, caller)
+        false -> arg
+      end
+
+    case expanded_arg do
+      {var, _, nil} when is_atom(var) ->
+        invalid_concat_left_argument_error(Atom.to_string(var))
+
+      {:^, _, [{var, _, nil}]} when is_atom(var) ->
+        invalid_concat_left_argument_error("^#{Atom.to_string(var)}")
+
+      _ ->
+        expanded_arg
+    end
+  end
+
+  defp expand_concat_argument(arg, _, _) do
+    arg
+  end
+
+  defp invalid_concat_left_argument_error(arg) do
+    :erlang.error(
+      ArgumentError.exception(
+        "the left argument of <> operator inside a match should be always a literal " <>
+          "binary as its size can't be verified, got: #{arg}"
+      )
+    )
   end
 
   @doc """
@@ -1827,10 +1880,10 @@ defmodule Kernel do
       iex> inspect(:foo)
       ":foo"
 
-      iex> inspect [1, 2, 3, 4, 5], limit: 3
+      iex> inspect([1, 2, 3, 4, 5], limit: 3)
       "[1, 2, 3, ...]"
 
-      iex> inspect [1, 2, 3], pretty: true, width: 0
+      iex> inspect([1, 2, 3], pretty: true, width: 0)
       "[1,\n 2,\n 3]"
 
       iex> inspect("olá" <> <<0>>)
@@ -2629,7 +2682,7 @@ defmodule Kernel do
     function? = __CALLER__.function != nil
 
     cond do
-      # Check for Module as it is compiled later than Kernel
+      # Check for Macro as it is compiled later than Kernel
       not bootstrapped?(Macro) ->
         nil
 
@@ -2638,10 +2691,25 @@ defmodule Kernel do
               "invalid write attribute syntax, you probably meant to use: @#{name} expression"
 
       # Typespecs attributes are currently special cased by the compiler
-      macro = is_list(args) and length(args) == 1 and typespec(name) ->
+      is_list(args) and args != [] and tl(args) == [] and typespec?(name) ->
         case bootstrapped?(Kernel.Typespec) do
-          false -> nil
-          true -> quote(do: Kernel.Typespec.unquote(macro)(unquote(hd(args))))
+          false ->
+            :ok
+
+          true ->
+            pos = :elixir_locals.cache_env(__CALLER__)
+            %{line: line, file: file, module: module} = __CALLER__
+
+            quote do
+              Kernel.Typespec.deftypespec(
+                unquote(name),
+                unquote(Macro.escape(hd(args), unquote: true)),
+                unquote(line),
+                unquote(file),
+                unquote(module),
+                unquote(pos)
+              )
+            end
         end
 
       true ->
@@ -2665,51 +2733,32 @@ defmodule Kernel do
         warn_message = "@behavior attribute is not supported, please use @behaviour instead"
         :elixir_errors.warn(env.line, env.file, warn_message)
 
-      # TODO: Remove :compile check once on 2.0 as we no longer
-      # need to warn on parse transforms in Module.put_attribute.
-      name == :compile ->
-        {stack, _} = :elixir_quote.escape(env_stacktrace(env), false)
-
-        quote do
-          Module.put_attribute(
-            __MODULE__,
-            unquote(name),
-            unquote(arg),
-            unquote(stack),
-            unquote(line)
-          )
-        end
-
       :lists.member(name, [:moduledoc, :typedoc, :doc]) ->
-        {stack, _} = :elixir_quote.escape(env_stacktrace(env), false)
         arg = {env.line, arg}
 
         quote do
-          Module.put_attribute(
-            __MODULE__,
-            unquote(name),
-            unquote(arg),
-            unquote(stack),
-            unquote(line)
-          )
+          Module.put_attribute(__MODULE__, unquote(name), unquote(arg), unquote(line))
         end
 
       true ->
         quote do
-          Module.put_attribute(__MODULE__, unquote(name), unquote(arg), nil, unquote(line))
+          Module.put_attribute(__MODULE__, unquote(name), unquote(arg), unquote(line))
         end
     end
   end
 
   # @attribute or @attribute()
   defp do_at(args, _meta, name, function?, env) when is_atom(args) or args == [] do
-    stack = env_stacktrace(env)
+    line = env.line
     doc_attr? = :lists.member(name, [:moduledoc, :typedoc, :doc])
 
     case function? do
       true ->
         value =
-          with {_, doc} when doc_attr? <- Module.get_attribute(env.module, name, stack), do: doc
+          case Module.get_attribute(env.module, name, line) do
+            {_, doc} when doc_attr? -> doc
+            other -> other
+          end
 
         try do
           :elixir_quote.escape(value, false)
@@ -2722,13 +2771,17 @@ defmodule Kernel do
           {val, _} -> val
         end
 
-      false ->
-        {escaped, _} = :elixir_quote.escape(stack, false)
-
+      false when doc_attr? ->
         quote do
-          with {_, doc} when unquote(doc_attr?) <-
-                 Module.get_attribute(__MODULE__, unquote(name), unquote(escaped)),
-               do: doc
+          case Module.get_attribute(__MODULE__, unquote(name), unquote(line)) do
+            {_, doc} -> doc
+            other -> other
+          end
+        end
+
+      false ->
+        quote do
+          Module.get_attribute(__MODULE__, unquote(name), unquote(line))
         end
     end
   end
@@ -2738,13 +2791,13 @@ defmodule Kernel do
     raise ArgumentError, "expected 0 or 1 argument for @#{name}, got: #{length(args)}"
   end
 
-  defp typespec(:type), do: :deftype
-  defp typespec(:typep), do: :deftypep
-  defp typespec(:opaque), do: :defopaque
-  defp typespec(:spec), do: :defspec
-  defp typespec(:callback), do: :defcallback
-  defp typespec(:macrocallback), do: :defmacrocallback
-  defp typespec(_), do: false
+  defp typespec?(:type), do: true
+  defp typespec?(:typep), do: true
+  defp typespec?(:opaque), do: true
+  defp typespec?(:spec), do: true
+  defp typespec?(:callback), do: true
+  defp typespec?(:macrocallback), do: true
+  defp typespec?(_), do: false
 
   @doc """
   Returns the binding for the given context as a keyword list.
@@ -2775,9 +2828,12 @@ defmodule Kernel do
   defmacro binding(context \\ nil) do
     in_match? = Macro.Env.in_match?(__CALLER__)
 
-    for {v, c} <- __CALLER__.vars, c == context do
-      {v, wrap_binding(in_match?, {v, [generated: true], c})}
-    end
+    bindings =
+      for {v, c} <- Macro.Env.vars(__CALLER__), c == context do
+        {v, wrap_binding(in_match?, {v, [generated: true], c})}
+      end
+
+    :lists.sort(bindings)
   end
 
   defp wrap_binding(true, var) do
@@ -3067,7 +3123,7 @@ defmodule Kernel do
   The `|>` operator is mostly useful when there is a desire to execute a series
   of operations resembling a pipeline:
 
-      iex> [1, [2], 3] |> List.flatten |> Enum.map(fn x -> x * 2 end)
+      iex> [1, [2], 3] |> List.flatten() |> Enum.map(fn x -> x * 2 end)
       [2, 4, 6]
 
   In the example above, the list `[1, [2], 3]` is passed as the first argument
@@ -3134,10 +3190,11 @@ defmodule Kernel do
     fun = fn {x, pos}, acc ->
       case x do
         {op, _, [_]} when op == :+ or op == :- ->
-          :elixir_errors.warn(__CALLER__.line, __CALLER__.file, <<
-            "piping into a unary operator is deprecated, please use the ",
-            "qualified name. For example, Kernel.+(5), instead of +5"
-          >>)
+          message =
+            <<"piping into a unary operator is deprecated, please use the ",
+              "qualified name. For example, Kernel.+(5), instead of +5">>
+
+          :elixir_errors.warn(__CALLER__.line, __CALLER__.file, message)
 
         _ ->
           :ok
@@ -3156,6 +3213,8 @@ defmodule Kernel do
   Note that this function does not load the module in case
   it is not loaded. Check `Code.ensure_loaded/1` for more
   information.
+
+  Inlined by the compiler.
 
   ## Examples
 
@@ -3329,7 +3388,8 @@ defmodule Kernel do
     :lists.mapfoldl(fun, acc, list)
   end
 
-  defp ensure_evaled_element(elem, acc) when is_number(elem) or is_atom(elem) or is_binary(elem) do
+  defp ensure_evaled_element(elem, acc)
+       when is_number(elem) or is_atom(elem) or is_binary(elem) do
     {elem, acc}
   end
 
@@ -3518,7 +3578,7 @@ defmodule Kernel do
       iex> defmodule Foo do
       ...>   def bar, do: :baz
       ...> end
-      iex> Foo.bar
+      iex> Foo.bar()
       :baz
 
   ## Nesting
@@ -3623,7 +3683,8 @@ defmodule Kernel do
           escaped
       end
 
-    module_vars = module_vars(env.vars, 0)
+    # We reimplement Macro.Env.vars/1 due to bootstrap concerns.
+    module_vars = module_vars(:maps.keys(env.current_vars), 0)
 
     quote do
       unquote(with_alias)
@@ -3723,7 +3784,7 @@ defmodule Kernel do
         def bar, do: :baz
       end
 
-      Foo.bar #=> :baz
+      Foo.bar() #=> :baz
 
   A function that expects arguments can be defined as follows:
 
@@ -3841,7 +3902,7 @@ defmodule Kernel do
         defp sum(a, b), do: a + b
       end
 
-      Foo.bar #=> 3
+      Foo.bar() #=> 3
       Foo.sum(1, 2) #=> ** (UndefinedFunctionError) undefined function Foo.sum/2
 
   """
@@ -4546,6 +4607,7 @@ defmodule Kernel do
       end
 
   """
+  @since "1.6.0"
   @spec defguard(Macro.t()) :: Macro.t()
   defmacro defguard(guard) do
     define_guard(:defmacro, guard, __CALLER__)
@@ -4558,9 +4620,10 @@ defmodule Kernel do
   allowed in guards, and otherwise creates a private macro that can be used
   both inside or outside guards in the current module.
 
-  Similar to `defmacrop/2`, `defguardp/2` must be defined before its use
+  Similar to `defmacrop/2`, `defguardp/1` must be defined before its use
   in the current module.
   """
+  @since "1.6.0"
   @spec defguardp(Macro.t()) :: Macro.t()
   defmacro defguardp(guard) do
     define_guard(:defmacrop, guard, __CALLER__)
@@ -4568,25 +4631,33 @@ defmodule Kernel do
 
   defp define_guard(kind, guard, env) do
     case :elixir_utils.extract_guards(guard) do
-      {call, impl} when length(impl) < 2 ->
+      {call, [_, _ | _]} ->
+        raise ArgumentError,
+              "invalid syntax in defguard #{Macro.to_string(call)}, " <>
+                "only a single when clause is allowed"
+
+      {call, impls} ->
         case Macro.decompose_call(call) do
           {_name, args} ->
             validate_variable_only_args!(call, args)
 
-            quoted =
-              quote do
-                require Kernel.Utils
-                Kernel.Utils.defguard(unquote(args), unquote(impl))
-              end
+            case impls do
+              [] ->
+                define(kind, call, nil, env)
 
-            define(kind, call, [do: quoted], env)
+              [guard] ->
+                quoted =
+                  quote do
+                    require Kernel.Utils
+                    Kernel.Utils.defguard(unquote(args), unquote(guard))
+                  end
+
+                define(kind, call, [do: quoted], env)
+            end
 
           _invalid_definition ->
             raise ArgumentError, "invalid syntax in defguard #{Macro.to_string(call)}"
         end
-
-      {call, _multiple_impls} ->
-        raise ArgumentError, "invalid syntax in defguard #{Macro.to_string(call)}"
     end
   end
 
@@ -5105,17 +5176,6 @@ defmodule Kernel do
 
   ## Shared functions
 
-  # We need this check only for bootstrap purposes.
-  # Once Kernel is loaded and we recompile, it is a no-op.
-  @compile {:inline, bootstrapped?: 1}
-  case :code.ensure_loaded(Kernel) do
-    {:module, _} ->
-      defp bootstrapped?(_), do: true
-
-    {:error, _} ->
-      defp bootstrapped?(module), do: :code.ensure_loaded(module) == {:module, module}
-  end
-
   defp assert_module_scope(env, fun, arity) do
     case env.module do
       nil -> raise ArgumentError, "cannot invoke #{fun}/#{arity} outside module"
@@ -5127,13 +5187,6 @@ defmodule Kernel do
     case env.function do
       nil -> :ok
       _ -> raise ArgumentError, "cannot invoke #{fun}/#{arity} inside function/macro"
-    end
-  end
-
-  defp env_stacktrace(env) do
-    case bootstrapped?(Path) do
-      true -> Macro.Env.stacktrace(env)
-      false -> []
     end
   end
 

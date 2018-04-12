@@ -16,11 +16,11 @@ defmodule Calendar.ISO do
   @behaviour Calendar
 
   @unix_epoch 62_167_219_200
-  @unix_start 1_000_000 * -@unix_epoch
-  @unix_end 315_569_519_999_999_999 - @unix_epoch * 1_000_000
-  @unix_range_microseconds @unix_start..@unix_end
+  unix_start = (315_537_897_600 + @unix_epoch) * -1_000_000
+  unix_end = 315_569_519_999_999_999 - @unix_epoch * 1_000_000
+  @unix_range_microseconds unix_start..unix_end
 
-  @type year :: 0..9999
+  @type year :: -9999..9999
   @type month :: 1..12
   @type day :: 1..31
 
@@ -34,6 +34,8 @@ defmodule Calendar.ISO do
   @days_per_nonleap_year 365
   @days_per_leap_year 366
 
+  @months_in_year 12
+
   @doc """
   Returns the `t:Calendar.iso_days/0` format of the specified date.
 
@@ -45,9 +47,12 @@ defmodule Calendar.ISO do
       {730485, {43200000000, 86400000000}}
       iex> Calendar.ISO.naive_datetime_to_iso_days(2000, 1, 1, 13, 0, 0, {0, 6})
       {730485, {46800000000, 86400000000}}
+      iex> Calendar.ISO.naive_datetime_to_iso_days(-1, 1, 1, 0, 0, 0, {0, 6})
+      {-365, {0, 86400000000}}
 
   """
   @impl true
+  @since "1.5.0"
   @spec naive_datetime_to_iso_days(
           Calendar.year(),
           Calendar.month(),
@@ -68,23 +73,25 @@ defmodule Calendar.ISO do
 
       iex> Calendar.ISO.naive_datetime_from_iso_days({0, {0, 86400}})
       {0, 1, 1, 0, 0, 0, {0, 6}}
-      iex> Calendar.ISO.naive_datetime_from_iso_days({730485, {0, 86400}})
+      iex> Calendar.ISO.naive_datetime_from_iso_days({730_485, {0, 86400}})
       {2000, 1, 1, 0, 0, 0, {0, 6}}
-      iex> Calendar.ISO.naive_datetime_from_iso_days({730485, {43200, 86400}})
+      iex> Calendar.ISO.naive_datetime_from_iso_days({730_485, {43200, 86400}})
       {2000, 1, 1, 12, 0, 0, {0, 6}}
+      iex> Calendar.ISO.naive_datetime_from_iso_days({-365, {0, 86400000000}})
+      {-1, 1, 1, 0, 0, 0, {0, 6}}
 
   """
-  @spec naive_datetime_from_iso_days(Calendar.iso_days()) ::
-          {
-            Calendar.year(),
-            Calendar.month(),
-            Calendar.day(),
-            Calendar.hour(),
-            Calendar.minute(),
-            Calendar.second(),
-            Calendar.microsecond()
-          }
+  @spec naive_datetime_from_iso_days(Calendar.iso_days()) :: {
+          Calendar.year(),
+          Calendar.month(),
+          Calendar.day(),
+          Calendar.hour(),
+          Calendar.minute(),
+          Calendar.second(),
+          Calendar.microsecond()
+        }
   @impl true
+  @since "1.5.0"
   def naive_datetime_from_iso_days({days, day_fraction}) do
     {year, month, day} = date_from_iso_days(days)
     {hour, minute, second, microsecond} = time_from_day_fraction(day_fraction)
@@ -103,6 +110,7 @@ defmodule Calendar.ISO do
 
   """
   @impl true
+  @since "1.5.0"
   @spec time_to_day_fraction(
           Calendar.hour(),
           Calendar.minute(),
@@ -123,13 +131,14 @@ defmodule Calendar.ISO do
 
   ## Examples
 
-      iex> Calendar.ISO.time_from_day_fraction({1,2})
+      iex> Calendar.ISO.time_from_day_fraction({1, 2})
       {12, 0, 0, {0, 6}}
-      iex> Calendar.ISO.time_from_day_fraction({13,24})
+      iex> Calendar.ISO.time_from_day_fraction({13, 24})
       {13, 0, 0, {0, 6}}
 
   """
   @impl true
+  @since "1.5.0"
   @spec time_from_day_fraction(Calendar.day_fraction()) ::
           {Calendar.hour(), Calendar.minute(), Calendar.second(), Calendar.microsecond()}
   def time_from_day_fraction({parts_in_day, parts_per_day}) do
@@ -147,6 +156,7 @@ defmodule Calendar.ISO do
 
   # Converts year, month, day to count of days since 0000-01-01.
   @doc false
+  @since "1.5.0"
   def date_to_iso_days(0, 1, 1) do
     0
   end
@@ -155,7 +165,7 @@ defmodule Calendar.ISO do
     719_528
   end
 
-  def date_to_iso_days(year, month, day) when year in 0..9999 do
+  def date_to_iso_days(year, month, day) when year in -9999..9999 do
     true = day <= days_in_month(year, month)
 
     days_in_previous_years(year) + days_before_month(month) + leap_day_offset(year, month) + day -
@@ -164,6 +174,7 @@ defmodule Calendar.ISO do
 
   # Converts count of days since 0000-01-01 to {year, month, day} tuple.
   @doc false
+  @since "1.5.0"
   def date_from_iso_days(days) when days in 0..3_652_424 do
     {year, day_of_year} = days_to_year(days)
     extra_day = if leap_year?(year), do: 1, else: 0
@@ -171,10 +182,24 @@ defmodule Calendar.ISO do
     {year, month, day_in_month + 1}
   end
 
+  def date_from_iso_days(days) when days in -3_652_059..-1 do
+    {year, day_of_year} = days_to_year(-days)
+    previous_extra_day = if leap_year?(year), do: 1, else: 0
+    extra_day = if leap_year?(year + 1), do: 1, else: 0
+    day_of_year = @days_per_nonleap_year + extra_day - day_of_year
+    {month, day_in_month} = year_day_to_year_date(extra_day, day_of_year)
+    {-year - 1, month, day_in_month + previous_extra_day}
+  end
+
   defp div_mod(int1, int2) do
     div = div(int1, int2)
-    mod = int1 - div * int2
-    {div, mod}
+    rem = int1 - div * int2
+
+    if rem >= 0 do
+      {div, rem}
+    else
+      {div - 1, rem + int2}
+    end
   end
 
   @doc """
@@ -194,6 +219,8 @@ defmodule Calendar.ISO do
       29
       iex> Calendar.ISO.days_in_month(2004, 4)
       30
+      iex> Calendar.ISO.days_in_month(-1, 5)
+      31
 
   """
   @spec days_in_month(year, month) :: 28..31
@@ -208,6 +235,22 @@ defmodule Calendar.ISO do
   def days_in_month(_, month) when month in 1..12, do: 31
 
   @doc """
+  Returns how many months there are in the given year.
+
+  ## Example
+
+      iex> Calendar.ISO.months_in_year(2004)
+      12
+
+  """
+  @impl true
+  @since "1.7.0"
+  @spec months_in_year(year) :: 12
+  def months_in_year(_year) do
+    @months_in_year
+  end
+
+  @doc """
   Returns if the given year is a leap year.
 
   ## Examples
@@ -220,12 +263,14 @@ defmodule Calendar.ISO do
       true
       iex> Calendar.ISO.leap_year?(1900)
       false
+      iex> Calendar.ISO.leap_year?(-4)
+      true
 
   """
   @spec leap_year?(year) :: boolean()
   @impl true
-  def leap_year?(year) when is_integer(year) and year >= 0 do
-    rem(year, 4) === 0 and (rem(year, 100) > 0 or rem(year, 400) === 0)
+  def leap_year?(year) when is_integer(year) do
+    rem(year, 4) === 0 and (rem(year, 100) !== 0 or rem(year, 400) === 0)
   end
 
   @doc """
@@ -237,18 +282,21 @@ defmodule Calendar.ISO do
 
       iex> Calendar.ISO.day_of_week(2016, 10, 31)
       1
-      iex> Calendar.ISO.day_of_week(2016, 11, 01)
+      iex> Calendar.ISO.day_of_week(2016, 11, 1)
       2
-      iex> Calendar.ISO.day_of_week(2016, 11, 02)
+      iex> Calendar.ISO.day_of_week(2016, 11, 2)
       3
-      iex> Calendar.ISO.day_of_week(2016, 11, 03)
+      iex> Calendar.ISO.day_of_week(2016, 11, 3)
       4
-      iex> Calendar.ISO.day_of_week(2016, 11, 04)
+      iex> Calendar.ISO.day_of_week(2016, 11, 4)
       5
-      iex> Calendar.ISO.day_of_week(2016, 11, 05)
+      iex> Calendar.ISO.day_of_week(2016, 11, 5)
       6
-      iex> Calendar.ISO.day_of_week(2016, 11, 06)
+      iex> Calendar.ISO.day_of_week(2016, 11, 6)
       7
+      iex> Calendar.ISO.day_of_week(-99, 1, 31)
+      4
+
   """
   @spec day_of_week(year, month, day) :: 1..7
   @impl true
@@ -259,7 +307,23 @@ defmodule Calendar.ISO do
 
   @doc """
   Converts the given time into a string.
+
+  ## Examples
+
+      iex> Calendar.ISO.time_to_string(2, 2, 2, {2, 6})
+      "02:02:02.000002"
+      iex> Calendar.ISO.time_to_string(2, 2, 2, {2, 2})
+      "02:02:02.00"
+      iex> Calendar.ISO.time_to_string(2, 2, 2, {2, 0})
+      "02:02:02"
+
   """
+  @spec time_to_string(
+          Calendar.hour(),
+          Calendar.minute(),
+          Calendar.second(),
+          Calendar.microsecond()
+        ) :: String.t()
   @impl true
   def time_to_string(hour, minute, second, microsecond) do
     time_to_string(hour, minute, second, microsecond, :extended)
@@ -284,7 +348,18 @@ defmodule Calendar.ISO do
 
   @doc """
   Converts the given date into a string.
+
+  ## Examples
+
+    iex> Calendar.ISO.date_to_string(2015, 2, 28)
+    "2015-02-28"
+    iex> Calendar.ISO.date_to_string(2017, 8, 1)
+    "2017-08-01"
+    iex> Calendar.ISO.date_to_string(-99, 1, 31)
+    "-0099-01-31"
+
   """
+  @spec date_to_string(year, month, day) :: String.t()
   @impl true
   def date_to_string(year, month, day) do
     date_to_string(year, month, day, :extended)
@@ -300,16 +375,58 @@ defmodule Calendar.ISO do
 
   @doc """
   Converts the datetime (without time zone) into a string.
+
+  ## Examples
+
+    iex> Calendar.ISO.naive_datetime_to_string(2015, 2, 28, 1, 2, 3, {4, 6})
+    "2015-02-28 01:02:03.000004"
+    iex> Calendar.ISO.naive_datetime_to_string(2017, 8, 1, 1, 2, 3, {4, 5})
+    "2017-08-01 01:02:03.00000"
+
   """
   @impl true
+  @spec naive_datetime_to_string(
+          year,
+          month,
+          day,
+          Calendar.hour(),
+          Calendar.minute(),
+          Calendar.second(),
+          Calendar.microsecond()
+        ) :: String.t()
   def naive_datetime_to_string(year, month, day, hour, minute, second, microsecond) do
     date_to_string(year, month, day) <> " " <> time_to_string(hour, minute, second, microsecond)
   end
 
   @doc """
-  Convers the datetime (with time zone) into a string.
+  Converts the datetime (with time zone) into a string.
+
+  ## Examples
+
+    iex> Calendar.ISO.datetime_to_string(2017, 8, 1, 1, 2, 3, {4, 5}, "Europe/Berlin", "CET", 3600, 0)
+    "2017-08-01 01:02:03.00000+01:00 CET Europe/Berlin"
+    iex> Calendar.ISO.datetime_to_string(2017, 8, 1, 1, 2, 3, {4, 5}, "Europe/Berlin", "CDT", 3600, 3600)
+    "2017-08-01 01:02:03.00000+02:00 CDT Europe/Berlin"
+    iex> Calendar.ISO.datetime_to_string(2015, 2, 28, 1, 2, 3, {4, 5}, "America/Los_Angeles", "PST", -28800, 0)
+    "2015-02-28 01:02:03.00000-08:00 PST America/Los_Angeles"
+    iex> Calendar.ISO.datetime_to_string(2015, 2, 28, 1, 2, 3, {4, 5}, "America/Los_Angeles", "PDT", -28800, 3600)
+    "2015-02-28 01:02:03.00000-07:00 PDT America/Los_Angeles"
+
   """
   @impl true
+  @spec datetime_to_string(
+          year,
+          month,
+          day,
+          Calendar.hour(),
+          Calendar.minute(),
+          Calendar.second(),
+          Calendar.microsecond(),
+          Calendar.time_zone(),
+          Calendar.zone_abbr(),
+          Calendar.utc_offset(),
+          Calendar.std_offset()
+        ) :: String.t()
   def datetime_to_string(
         year,
         month,
@@ -330,18 +447,58 @@ defmodule Calendar.ISO do
       zone_to_string(utc_offset, std_offset, zone_abbr, time_zone)
   end
 
+  @doc """
+  Determines if the date given is valid according to the proleptic Gregorian calendar.
+
+  ## Examples
+
+    iex> Calendar.ISO.valid_date?(2015, 2, 28)
+    true
+    iex> Calendar.ISO.valid_date?(2015, 2, 30)
+    false
+    iex> Calendar.ISO.valid_date?(-1, 12, 31)
+    true
+    iex> Calendar.ISO.valid_date?(-1, 12, 32)
+    false
+
+  """
   @impl true
+  @since "1.5.0"
+  @spec valid_date?(year, month, day) :: boolean
   def valid_date?(year, month, day) do
-    month in 1..12 and year in 0..9999 and day in 1..days_in_month(year, month)
+    month in 1..12 and year in -9999..9999 and day in 1..days_in_month(year, month)
   end
 
+  @doc """
+  Determines if the date given is valid according to the proleptic Gregorian calendar.
+  Note that leap seconds are considered valid, but the use of 24:00:00 as the
+  zero hour of the day is considered invalid.
+
+  ## Examples
+
+    iex> Calendar.ISO.valid_time?(10, 50, 25, {3006, 6})
+    true
+    iex> Calendar.ISO.valid_time?(23, 59, 60, {0, 0})
+    true
+    iex> Calendar.ISO.valid_time?(24, 0, 0, {0, 0})
+    false
+
+  """
   @impl true
+  @since "1.5.0"
+  @spec valid_time?(Calendar.hour(), Calendar.minute(), Calendar.secon(), Calendar.microsecond()) ::
+          boolean
   def valid_time?(hour, minute, second, {microsecond, precision}) do
     hour in 0..23 and minute in 0..59 and second in 0..60 and microsecond in 0..999_999 and
       precision in 0..6
   end
 
+  @doc """
+  See `c:Calendar.day_rollover_relative_to_midlight_utc/0` for documentation.
+  """
   @impl true
+  @since "1.5.0"
+  @spec day_rollover_relative_to_midnight_utc() :: {0, 1}
   def day_rollover_relative_to_midnight_utc() do
     {0, 1}
   end
@@ -371,9 +528,13 @@ defmodule Calendar.ISO do
   defp sign(total) when total < 0, do: "-"
   defp sign(_), do: "+"
 
-  defp zero_pad(val, count) do
+  defp zero_pad(val, count) when val >= 0 do
     num = Integer.to_string(val)
     :binary.copy("0", count - byte_size(num)) <> num
+  end
+
+  defp zero_pad(val, count) do
+    "-" <> zero_pad(-val, count)
   end
 
   ## Helpers
@@ -405,6 +566,7 @@ defmodule Calendar.ISO do
     do: precision_for_unit(div(number, 10), precision + 1)
 
   @doc false
+  @since "1.5.0"
   def date_to_iso8601(year, month, day, format \\ :extended) do
     date_to_string(year, month, day, format)
   end
@@ -509,6 +671,7 @@ defmodule Calendar.ISO do
   end
 
   @doc false
+  @since "1.5.0"
   def iso_days_to_unit({days, {parts, ppd}}, unit) do
     day_microseconds = days * @parts_per_day
     microseconds = div(parts * @parts_per_day, ppd)
@@ -516,6 +679,7 @@ defmodule Calendar.ISO do
   end
 
   @doc false
+  @since "1.5.0"
   def add_day_fraction_to_iso_days({days, {parts, ppd}}, add, ppd) do
     normalize_iso_days(days, parts + add, ppd)
   end

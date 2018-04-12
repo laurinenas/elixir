@@ -187,7 +187,7 @@ zips: Precompiled.zip Docs.zip
 
 #==> Test tasks
 
-test: test_erlang test_elixir
+test: test_formatted test_erlang test_elixir
 
 test_windows: test test_taskkill
 
@@ -198,6 +198,9 @@ test_taskkill:
 TEST_ERL = lib/elixir/test/erlang
 TEST_EBIN = lib/elixir/test/ebin
 TEST_ERLS = $(addprefix $(TEST_EBIN)/, $(addsuffix .beam, $(basename $(notdir $(wildcard $(TEST_ERL)/*.erl)))))
+
+test_formatted: compile
+	bin/elixir bin/mix format --check-formatted
 
 test_erlang: compile $(TEST_ERLS)
 	@ echo "==> elixir (eunit)"
@@ -243,13 +246,13 @@ build_man: man/iex.1 man/elixir.1
 
 man/iex.1:
 	$(Q) cp man/iex.1.in man/iex.1
-	$(Q) sed -i.bak "/{COMMON}/r common" man/iex.1
+	$(Q) sed -i.bak "/{COMMON}/r man/common" man/iex.1
 	$(Q) sed -i.bak "/{COMMON}/d" man/iex.1
 	$(Q) rm -f man/iex.1.bak
 
 man/elixir.1:
 	$(Q) cp man/elixir.1.in man/elixir.1
-	$(Q) sed -i.bak "/{COMMON}/r common" man/elixir.1
+	$(Q) sed -i.bak "/{COMMON}/r man/common" man/elixir.1
 	$(Q) sed -i.bak "/{COMMON}/d" man/elixir.1
 	$(Q) rm -f man/elixir.1.bak
 

@@ -44,7 +44,7 @@ defmodule Protocol do
 
       # Convert the spec to callback if possible,
       # otherwise generate a dummy callback
-      Protocol.__spec__?(__MODULE__, name, arity) ||
+      Module.spec_to_callback(__MODULE__, {name, arity}) ||
         @callback unquote(name)(unquote_splicing(type_args)) :: term
     end
   end
@@ -317,14 +317,16 @@ defmodule Protocol do
         [
           {:abstract_code, {_raw, abstract_code}},
           {:attributes, attributes},
-          {:compile_info, compile_info},
-          {'ExDc', docs},
-          {'ExDp', deprecated}
+          {:compile_info, compile_info} | extra_chunks
         ] = entries
+
+        extra_chunks =
+          for {name, contents} when is_binary(contents) <- extra_chunks,
+              do: {List.to_string(name), contents}
 
         case attributes[:protocol] do
           [fallback_to_any: any] ->
-            {:ok, {protocol, any, abstract_code}, {compile_info, docs, deprecated}}
+            {:ok, {protocol, any, abstract_code}, {compile_info, extra_chunks}}
 
           _ ->
             {:error, :not_a_protocol}
@@ -493,15 +495,11 @@ defmodule Protocol do
   end
 
   # Finally compile the module and emit its bytecode.
-  defp compile(protocol, code, {compile_info, docs, deprecated}) do
+  defp compile(protocol, code, {compile_info, extra_chunks}) do
     opts = Keyword.take(compile_info, [:source])
     opts = if Code.compiler_options()[:debug_info], do: [:debug_info | opts], else: opts
     {:ok, ^protocol, binary, _warnings} = :compile.forms(code, [:return | opts])
-
-    case docs do
-      :missing_chunk -> {:ok, binary}
-      _ -> {:ok, :elixir_erl.add_beam_chunks(binary, [{"ExDc", docs}, {"ExDp", deprecated}])}
-    end
+    {:ok, :elixir_erl.add_beam_chunks(binary, extra_chunks)}
   end
 
   ## Definition callbacks
@@ -614,7 +612,7 @@ defmodule Protocol do
       # Inline struct implementation for performance
       @compile {:inline, struct_impl_for: 1}
 
-      unless Kernel.Typespec.defines_type?(__MODULE__, :t, 0) do
+      unless Module.defines_type?(__MODULE__, {:t, 0}) do
         @type t :: term
       end
 
@@ -717,7 +715,7 @@ defmodule Protocol do
     assert_impl!(protocol, Any, extra)
 
     # Clean up variables from eval context
-    env = %{env | vars: [], export_vars: nil}
+    env = :elixir_env.reset_vars(env)
     args = [for, struct, opts]
     impl = Module.concat(protocol, Any)
 
@@ -757,22 +755,6 @@ defmodule Protocol do
     end
 
     :ok
-  end
-
-  @doc false
-  def __spec__?(module, name, arity) do
-    signature = {name, arity}
-
-    mapper = fn {:spec, expr, pos} ->
-      if Kernel.Typespec.spec_to_signature(expr) == signature do
-        Module.store_typespec(module, :callback, {:callback, expr, pos})
-        true
-      end
-    end
-
-    specs = Module.get_attribute(module, :spec)
-    found = :lists.map(mapper, specs)
-    :lists.any(&(&1 == true), found)
   end
 
   ## Helpers

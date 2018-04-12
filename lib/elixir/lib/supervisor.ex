@@ -28,14 +28,17 @@ defmodule Supervisor do
 
         ## Callbacks
 
+        @impl true
         def init(stack) do
           {:ok, stack}
         end
 
+        @impl true
         def handle_call(:pop, _from, [h | t]) do
           {:reply, h, t}
         end
 
+        @impl true
         def handle_cast({:push, h}, t) do
           {:noreply, [h | t]}
         end
@@ -101,13 +104,10 @@ defmodule Supervisor do
 
   ## Start and shutdown
 
-  When the supervisor starts, it traverses all children and retrieves
-  each child specification. It is at this moment `{Stack, [:hello]}`
-  becomes a child specification by calling `Stack.child_spec([:hello])`.
-
-  Then the supervisor starts each child in the order they are defined.
-  This is done by calling the function defined under the `:start` key
-  in the child specification and typically defaults to `start_link/1`.
+  When the supervisor starts, it traverses all child specifications and
+  then starts each child in the order they are defined. This is done by
+  calling the function defined under the `:start` key in the child
+  specification and typically defaults to `start_link/1`.
 
   The `start_link/1` (or a custom) is then called for each child process.
   The `start_link/1` function must return `{:ok, pid}` where `pid` is the
@@ -124,8 +124,8 @@ defmodule Supervisor do
   then awaiting for a time interval for the child process to terminate. This
   interval defaults to 5000 milliseconds. If the child process does not
   terminate in this interval, the supervisor abruptly terminates the child
-  with reason `:brutal_kill`. The shutdown time can be configured in the
-  child specification which is fully detailed in the next section.
+  with reason `:kill`. The shutdown time can be configured in the child
+  specification which is fully detailed in the next section.
 
   If the child process is not trapping exits, it will shutdown immediately
   when it receives the first exit signal. If the child process is trapping
@@ -144,15 +144,15 @@ defmodule Supervisor do
 
   ## Child specification
 
-  The child specification describes how the supervisor start, shutdown and
-  restart child processes.
+  The child specification describes how the supervisor starts, shuts down,
+  and restarts child processes.
 
-  The child specification contains 5 keys. The first two are required
+  The child specification contains 5 keys. The first two are required,
   and the remaining ones are optional:
 
     * `:id` - a value used to identify the child specification
       internally by the supervisor; defaults to the given module.
-      In case of conflicting `:id`, the supervisor will refuse
+      In the case of conflicting `:id` values, the supervisor will refuse
       to initialize and require explicit IDs. This key is required.
 
     * `:start` - a tuple with the module-function-args to be invoked
@@ -167,11 +167,11 @@ defmodule Supervisor do
       is optional and defaults to `5000` if the type is `:worker` or
       `:infinity` if the type is `:supervisor`.
 
-    * `:type` - if the child process is a `:worker` or a `:supervisor`.
-      This key is optional and defaults to `:worker`.
+    * `:type` - specifies that the child process is a `:worker` or a
+      `:supervisor`. This key is optional and defaults to `:worker`.
 
-  There is a sixth key, called `:modules`, which is rarely changed and
-  it is set automatically based on the value in `:start`.
+  There is a sixth key, `:modules`, that is rarely changed. It is set
+  automatically based on the value in `:start`.
 
   Let's understand what the `:shutdown` and `:restart` options control.
 
@@ -197,8 +197,8 @@ defmodule Supervisor do
       supervisor, the recommended value is `:infinity` to give the supervisor
       and its children enough time to shutdown. This option can be used with
       regular workers but doing so is discouraged and requires extreme care.
-      If not used carefully and the child process does not terminate, it means
-      your application will never terminate as well.
+      If not used carefully, the child process will never terminate,
+      preventing your application from terminating as well.
 
   ### Restart values (:restart)
 
@@ -216,7 +216,7 @@ defmodule Supervisor do
 
     * `:transient` - the child process is restarted only if it
       terminates abnormally, i.e., with an exit reason other than
-      `:normal`, `:shutdown` or `{:shutdown, term}`.
+      `:normal`, `:shutdown`, or `{:shutdown, term}`.
 
   For a more complete understanding of the exit reasons and their
   impact, see the "Exit reasons and restarts" section.
@@ -301,7 +301,9 @@ defmodule Supervisor do
   function.
 
   You may also completely override the `child_spec/1` function in the Stack module
-  and return your own child specification.
+  and return your own child specification. Note there is no guarantee the `child_spec/1`
+  function will be called by the Supervisor process, as other processes may invoke
+  it to retrieve the child specification before reaching the supervisor.
 
   ## Exit reasons and restarts
 
@@ -343,6 +345,7 @@ defmodule Supervisor do
           Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
         end
 
+        @impl true
         def init(_arg) do
           children = [
             {Stack, [:hello]}
@@ -355,24 +358,25 @@ defmodule Supervisor do
   The difference between the two approaches is that a module-based
   supervisor gives you more direct control over how the supervisor
   is initialized. Instead of calling `Supervisor.start_link/2` with
-  a list of children that are automatically initialized, we have
-  defined a supervisor alongside its `c:init/1` callback and manually
-  initialized the children by calling `Supervisor.init/2`, passing
-  the same arguments we would have given to `start_link/2`.
+  a list of children that are automatically initialized, we manually
+  initialized the children by calling `Supervisor.init/2` inside its
+  `c:init/1` callback.
 
-  You may want to use a module-based supervisor if:
+  `use Supervisor` also defines a `child_spec/1` function which allows
+  us to run `MyApp.Supervisor` as a child of another supervisor:
 
-    * You need to perform some particular action on supervisor
-      initialization, like setting up an ETS table.
+      children = [
+        MyApp.Supervisor
+      ]
 
-    * You want to perform partial hot-code swapping of the
-      tree. The module-based approach allow you to add and remove
-      children on a case-by-case basis.
+      Supervisor.start_link(children, strategy: :one_for_one)
 
-  Note `use Supervisor` defines a `child_spec/1` function, allowing
-  the defined module itself to be put under a supervision tree.
-  The generated `child_spec/1` can be customized with the following
-  options:
+  A general guideline is to use the supervisor without a callback
+  module only at the top of your supervision tree, generally in the
+  `c:Application.start/2` callback. We recommend using module-based
+  supervisors for any other supervisor in your application, so they
+  can run as a child of another supervision in the tree. The generated
+  `child_spec/1` can be customized with the following options:
 
     * `:id` - the child specification id, defaults to the current module
     * `:start` - how to start the child process (defaults to calling `__MODULE__.start_link/1`)
@@ -413,8 +417,8 @@ defmodule Supervisor do
   The second argument is a keyword list of options:
 
     * `:strategy` - the restart strategy option. It can be either
-      `:one_for_one`, `:rest_for_one` or `:one_for_all`. See the
-      "Strategies" section.
+      `:one_for_one`, `:rest_for_one` or `:one_for_all`. Required.
+      See the "Strategies" section.
 
     * `:max_restarts` - the maximum number of restarts allowed in
       a time frame. Defaults to `3`.
@@ -422,8 +426,9 @@ defmodule Supervisor do
     * `:max_seconds` - the time frame in which `:max_restarts` applies.
       Defaults to `5`.
 
-  The `:strategy` option is required and by default a maximum of 3 restarts
-  is allowed within 5 seconds.
+    * `:name` - a name to register the supervisor process. Supported values are
+      explained in the "Name registration" section of the documentation of
+      `GenServer`. Optional.
 
   ### Strategies
 
@@ -446,7 +451,8 @@ defmodule Supervisor do
   has been replaced by the `DynamicSupervisor`. The `:simple_one_for_one`
   supervisor was similar to `:one_for_one` but suits better when dynamically
   attaching children. Many functions in this module behaved slightly
-  differently when this strategy is used.
+  differently when this strategy is used. See the `DynamicSupervisor` module
+  for more information and migration strategies.
 
   ## Name registration
 
@@ -456,12 +462,15 @@ defmodule Supervisor do
 
   @doc false
   defmacro __using__(opts) do
-    quote location: :keep do
+    quote location: :keep, bind_quoted: [opts: opts] do
       import Supervisor.Spec
       @behaviour Supervisor
-      @opts unquote(opts)
 
-      @doc false
+      @doc """
+      Returns a specification to start this module under a supervisor.
+
+      See `Supervisor`.
+      """
       def child_spec(arg) do
         default = %{
           id: __MODULE__,
@@ -469,13 +478,10 @@ defmodule Supervisor do
           type: :supervisor
         }
 
-        Supervisor.child_spec(default, @opts)
+        Supervisor.child_spec(default, unquote(Macro.escape(opts)))
       end
 
       defoverridable child_spec: 1
-
-      @doc false
-      def init(arg)
     end
   end
 
@@ -606,6 +612,7 @@ defmodule Supervisor do
   description of the available strategies.
   """
   # TODO: Warn if simple_one_for_one strategy is used on Elixir v1.8.
+  @since "1.5.0"
   @spec init([:supervisor.child_spec() | {module, term} | module], [init_option]) :: {:ok, tuple}
   def init(children, options) when is_list(children) and is_list(options) do
     unless strategy = options[:strategy] do
@@ -627,7 +634,7 @@ defmodule Supervisor do
       module.child_spec(arg)
     rescue
       e in UndefinedFunctionError ->
-        case System.stacktrace() do
+        case __STACKTRACE__ do
           [{^module, :child_spec, [^arg], _} | _] ->
             raise ArgumentError, child_spec_error(module)
 
@@ -760,6 +767,10 @@ defmodule Supervisor do
   name, the supported values are described in the "Name registration"
   section in the `GenServer` module docs.
   """
+
+  # It is important to keep the 2-arity spec because it is a catch
+  # all to start_link(children, options).
+  @spec start_link(module, term) :: on_start
   @spec start_link(module, term, GenServer.options()) :: on_start
   def start_link(module, arg, options \\ []) when is_list(options) do
     case Keyword.get(options, :name) do

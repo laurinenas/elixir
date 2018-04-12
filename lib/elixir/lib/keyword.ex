@@ -20,10 +20,17 @@ defmodule Keyword do
       iex> [{:active, :once}]
       [active: :once]
 
-  The two syntaxes are completely equivalent. Note that when keyword
-  lists are passed as the last argument to a function, if the short-hand
-  syntax is used then the square brackets around the keyword list can
-  be omitted as well. For example, the following:
+  The two syntaxes are completely equivalent. When using the colon syntax,
+  the key is always an atom, even when wrapped in quotes:
+
+      iex> ["exit_on_close": true]
+      [exit_on_close: true]
+
+  This mirrors the quoted atom syntax such as `:"exit_on_close"`.
+
+  Note that when keyword lists are passed as the last argument to a function,
+  if the short-hand syntax is used then the square brackets around the keyword list
+  can be omitted as well. For example, the following:
 
       String.split("1-0", "-", trim: true, parts: 2)
 
@@ -133,7 +140,7 @@ defmodule Keyword do
 
   ## Examples
 
-      iex> Keyword.new([:a, :b], fn(x) -> {x, x} end)
+      iex> Keyword.new([:a, :b], fn x -> {x, x} end)
       [a: :a, b: :b]
 
   """
@@ -620,6 +627,7 @@ defmodule Keyword do
       ** (KeyError) key :b not found in: [a: 1]
 
   """
+  @since "1.5.0"
   @spec replace!(t, key, value) :: t
   def replace!(keywords, key, value) when is_list(keywords) and is_atom(key) do
     case :lists.keyfind(key, 1, keywords) do

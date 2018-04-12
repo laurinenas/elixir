@@ -9,6 +9,12 @@ defmodule DynamicSupervisorTest do
     def init(args), do: args
   end
 
+  test "can be supervised directly" do
+    children = [{DynamicSupervisor, strategy: :one_for_one, name: :dyn_sup_spec_test}]
+    assert {:ok, _} = Supervisor.start_link(children, strategy: :one_for_one)
+    assert DynamicSupervisor.which_children(:dyn_sup_spec_test) == []
+  end
+
   describe "use/2" do
     test "generates child_spec/1" do
       assert Simple.child_spec([:hello]) == %{
@@ -40,13 +46,14 @@ defmodule DynamicSupervisorTest do
   describe "init/1" do
     test "set default options" do
       assert DynamicSupervisor.init(strategy: :one_for_one) ==
-               {:ok, %{
-                 strategy: :one_for_one,
-                 intensity: 3,
-                 period: 5,
-                 max_children: :infinity,
-                 extra_arguments: []
-               }}
+               {:ok,
+                %{
+                  strategy: :one_for_one,
+                  intensity: 3,
+                  period: 5,
+                  max_children: :infinity,
+                  extra_arguments: []
+                }}
     end
   end
 
@@ -88,6 +95,9 @@ defmodule DynamicSupervisorTest do
       # And the initial call
       assert {:supervisor, DynamicSupervisorTest.Simple, 1} =
                :proc_lib.translate_initial_call(pid)
+
+      # And shuts down
+      assert DynamicSupervisor.stop(__MODULE__) == :ok
     end
 
     test "sets initial call to the same as a regular supervisor" do
@@ -344,6 +354,26 @@ defmodule DynamicSupervisorTest do
 
       child = current_module_worker([:restart, :ok2], restart: :permanent)
       assert {:error, :max_children} = DynamicSupervisor.start_child(pid, child)
+    end
+
+    test "restarting a child with extra_arguments successfully restarts child" do
+      parent = self()
+
+      fun = fn ->
+        send(parent, :from_child)
+        :timer.sleep(:infinity)
+      end
+
+      {:ok, sup} = DynamicSupervisor.start_link(strategy: :one_for_one, extra_arguments: [fun])
+      child = %{id: Task, restart: :transient, start: {Task, :start_link, []}}
+
+      assert {:ok, child} = DynamicSupervisor.start_child(sup, child)
+      assert is_pid(child)
+      assert_receive :from_child
+      assert %{active: 1, workers: 1} = DynamicSupervisor.count_children(sup)
+      assert_kill(child, :oops)
+      assert_receive :from_child
+      assert %{workers: 1, active: 1} = DynamicSupervisor.count_children(sup)
     end
 
     test "child is restarted when trying again" do

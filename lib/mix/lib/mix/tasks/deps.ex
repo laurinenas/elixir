@@ -98,14 +98,23 @@ defmodule Mix.Tasks.Deps do
 
   ### Git options (`:git`)
 
-    * `:git`        - the Git repository URI
-    * `:github`     - a shortcut for specifying Git repos from GitHub, uses `git:`
-    * `:ref`        - the reference to checkout (may be a branch, a commit SHA or a tag)
-    * `:branch`     - the Git branch to checkout
-    * `:tag`        - the Git tag to checkout
+    * `:git` - the Git repository URI
+    * `:github` - a shortcut for specifying Git repos from GitHub, uses `git:`
+    * `:ref` - the reference to checkout (may be a branch, a commit SHA or a tag)
+    * `:branch` - the Git branch to checkout
+    * `:tag` - the Git tag to checkout
     * `:submodules` - when `true`, initialize submodules for the repo
-    * `:sparse`     - checkout a single directory inside the Git repository and use it
+    * `:sparse` - checkout a single directory inside the Git repository and use it
       as your Mix dependency. Search "sparse git checkouts" for more information.
+
+  If your Git repository requires authentication, such as basic username:password
+  HTTP authentication via URLs, it can be achieved via Git configuration, keeping
+  the access rules outside of source control.
+
+      git config --global url."https://YOUR_USER:YOUR_PASS@example.com/".insteadOf "https://example.com/"
+
+  For more information, see the `git config` documentation:
+  https://git-scm.com/docs/git-config#git-config-urlltbasegtinsteadOf
 
   ### Path options (`:path`)
 
@@ -133,7 +142,7 @@ defmodule Mix.Tasks.Deps do
   @spec run(OptionParser.argv()) :: :ok
   def run(args) do
     Mix.Project.get!()
-    {opts, _, _} = OptionParser.parse(args)
+    {opts, _, _} = OptionParser.parse(args, switches: [all: :boolean])
     loaded_opts = if opts[:all], do: [], else: [env: Mix.env()]
 
     shell = Mix.shell()

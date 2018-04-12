@@ -3,7 +3,6 @@ Code.require_file("../test_helper.exs", __DIR__)
 defmodule Task.SupervisorTest do
   use ExUnit.Case
 
-  @moduletag report: [:supervisor]
   @moduletag :capture_log
 
   setup do
@@ -56,7 +55,7 @@ defmodule Task.SupervisorTest do
     receive do: (:ready -> :ok)
 
     # Assert the initial call
-    {:name, fun_name} = :erlang.fun_info(fun, :name)
+    {:name, fun_name} = Function.info(fun, :name)
     assert {__MODULE__, fun_name, 0} === :proc_lib.translate_initial_call(task.pid)
 
     # Run the task
@@ -110,7 +109,7 @@ defmodule Task.SupervisorTest do
     receive do: (:ready -> :ok)
 
     # Assert the initial call
-    {:name, fun_name} = :erlang.fun_info(fun, :name)
+    {:name, fun_name} = Function.info(fun, :name)
     assert {__MODULE__, fun_name, 0} === :proc_lib.translate_initial_call(task.pid)
 
     # Run the task
@@ -156,7 +155,7 @@ defmodule Task.SupervisorTest do
     refute pid in links
 
     receive do: (:ready -> :ok)
-    {:name, fun_name} = :erlang.fun_info(fun, :name)
+    {:name, fun_name} = Function.info(fun, :name)
     assert {__MODULE__, fun_name, 0} === :proc_lib.translate_initial_call(pid)
 
     send(pid, true)

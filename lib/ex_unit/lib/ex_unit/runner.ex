@@ -6,7 +6,9 @@ defmodule ExUnit.Runner do
   @rand_algorithm :exs1024
 
   def run(opts, load_us) do
-    {opts, config} = configure(opts)
+    {:ok, manager} = EM.start_link()
+    {:ok, stats} = EM.add_handler(manager, ExUnit.RunnerStats, opts)
+    {opts, config} = configure(manager, opts)
 
     :erlang.system_flag(:backtrace_depth, Keyword.fetch!(opts, :stacktrace_depth))
 
@@ -17,16 +19,13 @@ defmodule ExUnit.Runner do
       end)
 
     EM.suite_finished(config.manager, run_us, load_us)
-    result = ExUnit.RunnerStats.stats(config.stats)
+    result = ExUnit.RunnerStats.stats(stats)
     EM.stop(config.manager)
     result
   end
 
-  defp configure(opts) do
+  defp configure(manager, opts) do
     opts = normalize_opts(opts)
-
-    {:ok, manager} = EM.start_link()
-    {:ok, stats} = EM.add_handler(manager, ExUnit.RunnerStats, opts)
     Enum.each(opts[:formatters], &EM.add_handler(manager, &1, opts))
 
     config = %{
@@ -34,8 +33,8 @@ defmodule ExUnit.Runner do
       exclude: opts[:exclude],
       include: opts[:include],
       manager: manager,
-      stats: stats,
       max_cases: opts[:max_cases],
+      only_test_ids: opts[:only_test_ids],
       seed: opts[:seed],
       modules: :async,
       timeout: opts[:timeout],
@@ -134,15 +133,22 @@ defmodule ExUnit.Runner do
     tests = shuffle(config, tests)
     include = config.include
     exclude = config.exclude
+    test_ids = config.only_test_ids
 
-    for test <- tests do
+    for test <- tests, include_test?(test_ids, test) do
       tags = Map.merge(test.tags, %{test: test.name, module: test.module})
 
       case ExUnit.Filters.eval(include, exclude, tags, tests) do
         :ok -> %{test | tags: tags}
-        {:error, msg} -> %{test | state: {:skip, msg}}
+        excluded_or_skipped -> %{test | state: excluded_or_skipped}
       end
     end
+  end
+
+  defp include_test?(nil, _test), do: true
+
+  defp include_test?(test_ids, test) do
+    MapSet.member?(test_ids, {test.module, test.name})
   end
 
   defp spawn_module(config, test_module, tests) do
@@ -181,22 +187,22 @@ defmodule ExUnit.Runner do
   end
 
   defp exec_module_setup(%ExUnit.TestModule{name: module} = test_module) do
-    {:ok, test_module, module.__ex_unit__(:setup_all, %{module: module})}
+    {:ok, test_module, module.__ex_unit__(:setup_all, %{module: module, case: module})}
   catch
     kind, error ->
       failed = failed(kind, error, pruned_stacktrace())
       {:error, %{test_module | state: failed}}
   end
 
-  defp run_test(true, config, test, context) do
-    run_test([], config, test, context)
+  defp run_test_with_capture_log(true, config, test, context) do
+    run_test_with_capture_log([], config, test, context)
   end
 
-  defp run_test(false, config, test, context) do
+  defp run_test_with_capture_log(false, config, test, context) do
     spawn_test(config, test, context)
   end
 
-  defp run_test(opts, config, test, context) do
+  defp run_test_with_capture_log(opts, config, test, context) do
     ref = make_ref()
 
     try do
@@ -224,7 +230,7 @@ defmodule ExUnit.Runner do
     test =
       if is_nil(test.state) do
         capture_log? = Map.get(tags, :capture_log, config.capture_log)
-        run_test(capture_log?, config, test, Map.merge(tags, context))
+        run_test_with_capture_log(capture_log?, config, test, Map.merge(tags, context))
       else
         test
       end

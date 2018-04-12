@@ -38,44 +38,47 @@ defmodule Mix.UtilsTest do
   end
 
   test "extract stale" do
-    time = {{2030, 1, 1}, {0, 0, 0}}
+    # 2030-01-01 00:00:00
+    time = 1_893_456_000
     assert Mix.Utils.extract_stale([__ENV__.file], [time]) == []
 
-    time = {{2000, 1, 1}, {0, 0, 0}}
+    # 2000-01-01 00:00:00
+    time = 946_684_800
     assert Mix.Utils.extract_stale([__ENV__.file], [time]) == [__ENV__.file]
 
     assert Mix.Utils.extract_stale([__ENV__.file], [__ENV__.file]) == []
   end
 
+  test "handles missing target files" do
+    assert Mix.Utils.stale?([__ENV__.file], []) == true
+  end
+
   test "symlink or copy" do
-    in_fixture "archive", fn ->
+    in_fixture("archive", fn ->
       File.mkdir_p!("_build/archive")
       result = Mix.Utils.symlink_or_copy(Path.expand("ebin"), Path.expand("_build/archive/ebin"))
       assert_ebin_symlinked_or_copied(result)
-    end
+    end)
   end
 
   test "symlink or copy removes previous directories" do
-    in_fixture "archive", fn ->
+    in_fixture("archive", fn ->
       File.mkdir_p!("_build/archive/ebin")
       result = Mix.Utils.symlink_or_copy(Path.expand("ebin"), Path.expand("_build/archive/ebin"))
       assert_ebin_symlinked_or_copied(result)
-    end
+    end)
   end
 
-  @windows? match?({:win32, _}, :os.type())
-  unless @windows? do
-    test "symlink or copy erases wrong symlinks" do
-      in_fixture "archive", fn ->
-        File.mkdir_p!("_build/archive")
-        Mix.Utils.symlink_or_copy(Path.expand("priv"), Path.expand("_build/archive/ebin"))
+  @tag unix: true
+  test "symlink or copy erases wrong symlinks" do
+    in_fixture("archive", fn ->
+      File.mkdir_p!("_build/archive")
+      build_ebin = Path.expand("_build/archive/ebin")
+      Mix.Utils.symlink_or_copy(Path.expand("priv"), build_ebin)
 
-        result =
-          Mix.Utils.symlink_or_copy(Path.expand("ebin"), Path.expand("_build/archive/ebin"))
-
-        assert_ebin_symlinked_or_copied(result)
-      end
-    end
+      result = Mix.Utils.symlink_or_copy(Path.expand("ebin"), build_ebin)
+      assert_ebin_symlinked_or_copied(result)
+    end)
   end
 
   test "proxy_config reads from env and returns credentials" do

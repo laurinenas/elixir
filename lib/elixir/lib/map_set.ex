@@ -5,7 +5,7 @@ defmodule MapSet do
   `MapSet` is the "go to" set data structure in Elixir. A set can be constructed
   using `MapSet.new/0`:
 
-      iex> MapSet.new
+      iex> MapSet.new()
       #MapSet<[]>
 
   A set can contain any kind of elements, and elements in a set don't have to be
@@ -13,7 +13,7 @@ defmodule MapSet do
   inserting an element in a set where it's already present, the insertion is
   simply a no-op.
 
-      iex> map_set = MapSet.new
+      iex> map_set = MapSet.new()
       iex> MapSet.put(map_set, "foo")
       #MapSet<["foo"]>
       iex> map_set |> MapSet.put("foo") |> MapSet.put("foo")
@@ -49,7 +49,7 @@ defmodule MapSet do
 
   ## Examples
 
-      iex> MapSet.new
+      iex> MapSet.new()
       #MapSet<[]>
 
   """
@@ -150,7 +150,8 @@ defmodule MapSet do
   # If the first set is less than twice the size of the second map,
   # it is fastest to re-accumulate items in the first set that are not
   # present in the second set.
-  def difference(%MapSet{map: map1}, %MapSet{map: map2}) when map_size(map1) < map_size(map2) * 2 do
+  def difference(%MapSet{map: map1}, %MapSet{map: map2})
+      when map_size(map1) < map_size(map2) * 2 do
     map =
       map1
       |> Map.keys()

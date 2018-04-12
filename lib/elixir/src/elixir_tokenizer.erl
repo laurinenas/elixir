@@ -36,9 +36,11 @@
 -define(unary_op3(T1, T2, T3),
   T1 == $~, T2 == $~, T3 == $~).
 
--define(two_op(T1, T2),
+-define(list_op(T1, T2),
   T1 == $+, T2 == $+;
-  T1 == $-, T2 == $-;
+  T1 == $-, T2 == $-).
+
+-define(two_op(T1, T2),
   T1 == $<, T2 == $>;
   T1 == $., T2 == $.).
 
@@ -182,7 +184,8 @@ tokenize([$~, S, H, H, H | T] = Original, Line, Column, Scope, Tokens) when ?is_
     {ok, NewLine, NewColumn, Parts, Rest} ->
       {Final, Modifiers} = collect_modifiers(Rest, []),
       Token = {sigil, {Line, Column, nil}, S, Parts, Modifiers, <<H, H, H>>},
-      tokenize(Final, NewLine, NewColumn, Scope, [Token | Tokens]);
+      NewColumn2 = NewColumn + length(Modifiers),
+      tokenize(Final, NewLine, NewColumn2, Scope, [Token | Tokens]);
     {error, Reason} ->
       {error, Reason, Original, Tokens}
   end;
@@ -192,7 +195,8 @@ tokenize([$~, S, H | T] = Original, Line, Column, Scope, Tokens) when ?is_sigil(
     {NewLine, NewColumn, Parts, Rest} ->
       {Final, Modifiers} = collect_modifiers(Rest, []),
       Token = {sigil, {Line, Column, nil}, S, Parts, Modifiers, <<H>>},
-      tokenize(Final, NewLine, NewColumn, Scope, [Token | Tokens]);
+      NewColumn2 = NewColumn + length(Modifiers),
+      tokenize(Final, NewLine, NewColumn2, Scope, [Token | Tokens]);
     {error, Reason} ->
       Sigil = [$~, S, H],
       interpolation_error(Reason, Original, Tokens, " (for sigil ~ts starting at line ~B)", [Sigil, Line])
@@ -221,7 +225,7 @@ tokenize([$?, $\\, H | T], Line, Column, Scope, Tokens) ->
 tokenize([$?, Char | T], Line, Column, Scope, Tokens) ->
   case handle_char(Char) of
     {Escape, Name} ->
-      Msg = io_lib:format("found ? followed by codepoint 0x~.16B (~ts), please use ~ts instead",
+      Msg = io_lib:format("found ? followed by codepoint 0x~.16B (~ts), please use ?~ts instead",
                           [Char, Name, Escape]),
       elixir_errors:warn(Line, Scope#elixir_tokenizer.file, Msg);
     false ->
@@ -279,8 +283,8 @@ tokenize([$:, T1, T2, T3 | Rest], Line, Column, Scope, Tokens) when
 % ## Two Token Operators
 tokenize([$:, T1, T2 | Rest], Line, Column, Scope, Tokens) when
     ?comp_op2(T1, T2); ?rel_op2(T1, T2); ?and_op(T1, T2); ?or_op(T1, T2);
-    ?arrow_op(T1, T2); ?in_match_op(T1, T2); ?two_op(T1, T2); ?stab_op(T1, T2);
-    ?type_op(T1, T2) ->
+    ?arrow_op(T1, T2); ?in_match_op(T1, T2); ?two_op(T1, T2); ?list_op(T1, T2);
+    ?stab_op(T1, T2); ?type_op(T1, T2) ->
   Token = {atom, {Line, Column, nil}, list_to_atom([T1, T2])},
   tokenize(Rest, Line, Column + 3, Scope, [Token | Tokens]);
 
@@ -294,6 +298,7 @@ tokenize([$:, T | Rest], Line, Column, Scope, Tokens) when
 % Stand-alone tokens
 
 tokenize("..." ++ Rest, Line, Column, Scope, Tokens) ->
+  maybe_warn_too_many_of_same_char("...", Rest, Line, Scope),
   Token = check_call_identifier(Line, Column, '...', Rest),
   tokenize(Rest, Line, Column + 3, Scope, [Token | Tokens]);
 
@@ -309,12 +314,15 @@ tokenize([T1, T2, T3 | Rest], Line, Column, Scope, Tokens) when ?comp_op3(T1, T2
   handle_op(Rest, Line, Column, comp_op, 3, list_to_atom([T1, T2, T3]), Scope, Tokens);
 
 tokenize([T1, T2, T3 | Rest], Line, Column, Scope, Tokens) when ?and_op3(T1, T2, T3) ->
+  maybe_warn_too_many_of_same_char([T1, T2, T3], Rest, Line, Scope),
   handle_op(Rest, Line, Column, and_op, 3, list_to_atom([T1, T2, T3]), Scope, Tokens);
 
 tokenize([T1, T2, T3 | Rest], Line, Column, Scope, Tokens) when ?or_op3(T1, T2, T3) ->
+  maybe_warn_too_many_of_same_char([T1, T2, T3], Rest, Line, Scope),
   handle_op(Rest, Line, Column, or_op, 3, list_to_atom([T1, T2, T3]), Scope, Tokens);
 
 tokenize([T1, T2, T3 | Rest], Line, Column, Scope, Tokens) when ?three_op(T1, T2, T3) ->
+  maybe_warn_too_many_of_same_char([T1, T2, T3], Rest, Line, Scope),
   handle_op(Rest, Line, Column, three_op, 3, list_to_atom([T1, T2, T3]), Scope, Tokens);
 
 tokenize([T1, T2, T3 | Rest], Line, Column, Scope, Tokens) when ?arrow_op3(T1, T2, T3) ->
@@ -323,7 +331,7 @@ tokenize([T1, T2, T3 | Rest], Line, Column, Scope, Tokens) when ?arrow_op3(T1, T
 % ## Containers + punctuation tokens
 tokenize([$, | Rest], Line, Column, Scope, Tokens) ->
   Token = {',', {Line, Column, 0}},
-  handle_terminator(Rest, Line, Column + 1, Scope, Token, Tokens);
+  tokenize(Rest, Line, Column + 1, Scope, [Token | Tokens]);
 
 tokenize([$<, $< | Rest], Line, Column, Scope, Tokens) ->
   Token = {'<<', {Line, Column, nil}},
@@ -343,6 +351,10 @@ tokenize([T | Rest], Line, Column, Scope, Tokens) when T == $); T == $}; T == $]
 
 % ## Two Token Operators
 tokenize([T1, T2 | Rest], Line, Column, Scope, Tokens) when ?two_op(T1, T2) ->
+  handle_op(Rest, Line, Column, two_op, 2, list_to_atom([T1, T2]), Scope, Tokens);
+
+tokenize([T1, T2 | Rest], Line, Column, Scope, Tokens) when ?list_op(T1, T2) ->
+  maybe_warn_too_many_of_same_char([T1, T2], Rest, Line, Scope),
   handle_op(Rest, Line, Column, two_op, 2, list_to_atom([T1, T2]), Scope, Tokens);
 
 tokenize([T1, T2 | Rest], Line, Column, Scope, Tokens) when ?arrow_op(T1, T2) ->
@@ -472,6 +484,10 @@ tokenize("\r\n" ++ Rest, Line, Column, Scope, Tokens) ->
   tokenize(Rest, Line + 1, 1, Scope, eol(Line, Column, Tokens));
 
 % Others
+
+tokenize([$%, $[ | Rest], Line, _Column, _Scope, Tokens) ->
+  Reason = {Line, "expected %{ to define a map, got: ", [$%, $[]},
+  {error, Reason, Rest, Tokens};
 
 tokenize([$%, ${ | T], Line, Column, Scope, Tokens) ->
   tokenize([${ | T], Line, Column + 1, Scope, [{'%{}', {Line, Column, nil}} | Tokens]);
@@ -618,7 +634,7 @@ handle_dot([$., T1, T2, T3 | Rest], Line, Column, DotInfo, Scope, Tokens) when
 % ## Two Token Operators
 handle_dot([$., T1, T2 | Rest], Line, Column, DotInfo, Scope, Tokens) when
     ?comp_op2(T1, T2); ?rel_op2(T1, T2); ?and_op(T1, T2); ?or_op(T1, T2);
-    ?arrow_op(T1, T2); ?in_match_op(T1, T2); ?two_op(T1, T2); ?type_op(T1, T2) ->
+    ?arrow_op(T1, T2); ?in_match_op(T1, T2); ?two_op(T1, T2); ?list_op(T1, T2); ?type_op(T1, T2) ->
   handle_call_identifier(Rest, Line, Column, DotInfo, 2, list_to_atom([T1, T2]), Scope, Tokens);
 
 % ## Single Token Operators
@@ -731,7 +747,7 @@ extract_heredoc(Line0, Column0, Rest0, Marker, Scope) ->
       %% in the final heredoc body three lines below.
       case extract_heredoc_body(Line0, Column0, Marker, [$\n | Rest1], []) of
         {ok, Line1, Body, Rest2, Spaces} ->
-          {ok, Line1, 1, tl(remove_heredoc_spaces(Body, Spaces, Marker, Scope)), Rest2};
+          {ok, Line1, 4 + Spaces, tl(remove_heredoc_spaces(Body, Spaces, Marker, Scope)), Rest2};
         {error, Reason, ErrorLine} ->
           Terminator = [Marker, Marker, Marker],
           {Message, Token} = heredoc_error_message(Reason, Line0, Terminator),
@@ -1128,8 +1144,7 @@ terminator('<<') -> '>>'.
 
 check_keyword(_Line, _Column, _Atom, [{'.', _} | _], _Rest) ->
   nomatch;
-check_keyword(DoLine, DoColumn, do,
-              [{Identifier, {Line, Column, Meta}, Atom} | T], _Rest) when Identifier == identifier ->
+check_keyword(DoLine, DoColumn, do, [{identifier, {Line, Column, Meta}, Atom} | T], _Rest) ->
   {ok, add_token_with_eol({do, {DoLine, DoColumn, nil}},
                           [{do_identifier, {Line, Column, Meta}, Atom} | T])};
 check_keyword(_Line, _Column, do, [{'fn', _} | _], _Rest) ->
@@ -1216,3 +1231,15 @@ invalid_do_with_fn_error(Prefix) ->
   Prefix ++ ". Anonymous functions are written as:\n\n"
   "    fn pattern -> expression end\n\n"
   "Syntax error before: ".
+
+% TODO: Turn into an error on Elixir 2.0.
+maybe_warn_too_many_of_same_char([T | _] = Token, [T | _] = _Rest, Line, Scope) ->
+  Warning =
+    case T of
+      $. -> "please use parens around \"...\" instead";
+      _ -> io_lib:format("please use a space between \"~ts\" and the next \"~ts\"", [Token, [T]])
+    end,
+  Message = io_lib:format("found \"~ts\" followed by \"~ts\", ~ts", [Token, [T], Warning]),
+  elixir_errors:warn(Line, Scope#elixir_tokenizer.file, Message);
+maybe_warn_too_many_of_same_char(_Token, _Rest, _Line, _Scope) ->
+  ok.

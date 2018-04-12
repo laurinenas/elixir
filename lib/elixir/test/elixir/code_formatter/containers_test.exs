@@ -18,16 +18,12 @@ defmodule Code.Formatter.ContainersTest do
       assert_format "{1,2,3}", "{1, 2, 3}"
     end
 
-    test "is strict on line limits" do
+    test "is flex on line limits" do
       bad = "{1, 2, 3, 4}"
 
       good = """
-      {
-        1,
-        2,
-        3,
-        4
-      }
+      {1, 2, 3,
+       4}
       """
 
       assert_format bad, good, @short_length
@@ -182,9 +178,30 @@ defmodule Code.Formatter.ContainersTest do
       assert_same keyword, @short_length
     end
 
+    test "with keyword lists on comma line limit" do
+      bad = """
+      [
+        foooo: 1,
+        barrr: 2
+      ]
+      """
+
+      good = """
+      [
+        foooo:
+          1,
+        barrr: 2
+      ]
+      """
+
+      assert_format bad, good, @short_length
+    end
+
     test "with quoted keyword lists" do
       assert_same ~S(["with spaces": 1])
       assert_same ~S(["one #{two} three": 1])
+      assert_same ~S(["\w": 1, "\\w": 2])
+      assert_same ~S(["Elixir.Foo": 1, "Elixir.Bar": 2])
       assert_format ~S(["Foo": 1, "Bar": 2]), ~S([Foo: 1, Bar: 2])
     end
 
@@ -261,16 +278,12 @@ defmodule Code.Formatter.ContainersTest do
       assert_same "<<(<<y>> <- x)>>"
     end
 
-    test "is strict on line limits" do
+    test "is flex on line limits" do
       bad = "<<1, 2, 3, 4>>"
 
       good = """
-      <<
-        1,
-        2,
-        3,
-        4
-      >>
+      <<1, 2, 3,
+        4>>
       """
 
       assert_format bad, good, @short_length
@@ -463,7 +476,7 @@ defmodule Code.Formatter.ContainersTest do
       }
       """
 
-      assert_format bad, good, @short_length
+      assert_format bad, good, line_length: 11
     end
 
     test "removes trailing comma" do
@@ -567,7 +580,7 @@ defmodule Code.Formatter.ContainersTest do
       }
       """
 
-      assert_format bad, good, @short_length
+      assert_format bad, good, line_length: 11
     end
 
     test "removes trailing comma" do
