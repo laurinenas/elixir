@@ -325,8 +325,7 @@ defmodule Registry do
   end
 
   @doc false
-  @since "1.4.0"
-  @spec start_link(keys, registry, keyword) :: {:ok, pid} | {:error, term}
+  @deprecated "Use Registry.start_link/1 instead"
   def start_link(keys, name, options \\ []) when keys in @keys and is_atom(name) do
     start_link([keys: keys, name: name] ++ options)
   end
@@ -410,7 +409,8 @@ defmodule Registry do
   function for building custom dispatching or a pubsub system.
   """
   @since "1.4.0"
-  @spec dispatch(registry, key, (entries :: [{pid, value}] -> term), keyword) :: :ok
+  @spec dispatch(registry, key, dispatcher, keyword) :: :ok
+        when dispatcher: (entries :: [{pid, value}] -> term) | {module(), atom(), [any()]}
   def dispatch(registry, key, mfa_or_fun, opts \\ [])
       when is_atom(registry) and is_function(mfa_or_fun, 1)
       when is_atom(registry) and tuple_size(mfa_or_fun) == 3 do
@@ -774,6 +774,7 @@ defmodule Registry do
       ["hello", "hello"]
       iex> Registry.lookup(Registry.DuplicateUnregisterMatchTest, "hello")
       [{self(), :world_b}, {self(), :world_c}]
+
   """
   @since "1.5.0"
   def unregister_match(registry, key, pattern, guards \\ []) when is_list(guards) do
@@ -1010,6 +1011,7 @@ defmodule Registry do
       iex> {:ok, _} = Registry.register(Registry.DuplicateCountTest, "hello", :world)
       iex> Registry.count(Registry.DuplicateCountTest)
       2
+
   """
   @since "1.7.0"
   @spec count(registry) :: non_neg_integer()

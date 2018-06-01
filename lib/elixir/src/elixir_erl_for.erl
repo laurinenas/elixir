@@ -104,15 +104,16 @@ build_inline_each(Ann, Clauses, Expr, {nil, _} = Into, Uniq, S) ->
   {elixir_erl:remote(Ann, lists, reverse, [ReduceExpr]), S};
 build_inline_each(Ann, Clauses, Expr, {bin, _, []}, Uniq, S) ->
   {InnerValue, SV} = build_var(Ann, S),
+  Generated = erl_anno:set_generated(true, Ann),
 
   InnerFun = fun(InnerExpr, InnerAcc) ->
     {'case', Ann, InnerExpr, [
-      {clause, Ann,
+      {clause, Generated,
        [InnerValue],
        [[elixir_erl:remote(Ann, erlang, is_binary, [InnerValue]),
          elixir_erl:remote(Ann, erlang, is_list, [InnerAcc])]],
-       [{cons, Ann, InnerAcc, InnerValue}]},
-      {clause, Ann,
+       [{cons, Generated, InnerAcc, InnerValue}]},
+      {clause, Generated,
        [InnerValue],
        [[elixir_erl:remote(Ann, erlang, is_bitstring, [InnerValue]),
          elixir_erl:remote(Ann, erlang, is_bitstring, [InnerAcc])]],
@@ -120,14 +121,14 @@ build_inline_each(Ann, Clauses, Expr, {bin, _, []}, Uniq, S) ->
           {bin_element, Ann, InnerAcc, default, [bitstring]},
           {bin_element, Ann, InnerValue, default, [bitstring]}
        ]}]},
-      {clause, Ann,
+      {clause, Generated,
        [InnerValue],
        [[elixir_erl:remote(Ann, erlang, is_bitstring, [InnerValue])]],
        [{bin, Ann, [
           {bin_element, Ann, elixir_erl:remote(Ann, erlang, iolist_to_binary, [InnerAcc]), default, [bitstring]},
           {bin_element, Ann, InnerValue, default, [bitstring]}
        ]}]},
-      {clause, Ann,
+      {clause, Generated,
        [InnerValue],
        [],
        [elixir_erl:remote(Ann, erlang, error, [{tuple, Ann, [{atom, Ann, badarg}, InnerValue]}])]}
@@ -176,15 +177,30 @@ build_into(Ann, Clauses, Expr, Into, Uniq, S) ->
         [Done],
         [],
         [{call, Ann, Fun, [Done, {atom, Ann, done}]}]}],
-      [{clause, Ann,
+      [stacktrace_clause(Ann, Fun, Acc, Kind, Reason, Stack)],
+      []},
+
+  {{block, Ann, [MatchExpr, TryExpr]}, SD}.
+
+stacktrace_clause(Ann, Fun, Acc, Kind, Reason, Stack) ->
+  Release = erlang:system_info(otp_release),
+
+  if
+    Release == "19"; Release == "20" ->
+      {clause, Ann,
         [{tuple, Ann, [Kind, Reason, {var, Ann, '_'}]}],
         [],
         [{match, Ann, Stack, elixir_erl:remote(Ann, erlang, get_stacktrace, [])},
          {call, Ann, Fun, [Acc, {atom, Ann, halt}]},
-         elixir_erl:remote(Ann, erlang, raise, [Kind, Reason, Stack])]}],
-      []},
+         elixir_erl:remote(Ann, erlang, raise, [Kind, Reason, Stack])]};
 
-  {{block, Ann, [MatchExpr, TryExpr]}, SD}.
+    true ->
+      {clause, Ann,
+        [{tuple, Ann, [Kind, Reason, Stack]}],
+        [],
+        [{call, Ann, Fun, [Acc, {atom, Ann, halt}]},
+         elixir_erl:remote(Ann, erlang, raise, [Kind, Reason, Stack])]}
+  end.
 
 %% Helpers
 

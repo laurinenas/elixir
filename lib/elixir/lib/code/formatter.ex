@@ -194,7 +194,7 @@ defmodule Code.Formatter do
 
   Returns `{:ok, doc}` or `{:error, parser_error}`.
 
-  See `format!/2` for the list of options.
+  See `Code.format_string!/2` for the list of options.
   """
   def to_algebra(string, opts \\ []) when is_binary(string) and is_list(opts) do
     file = Keyword.get(opts, :file, "nofile")
@@ -224,7 +224,7 @@ defmodule Code.Formatter do
 
   Raises if the `string` cannot be parsed.
 
-  See `format!/2` for the list of options.
+  See `Code.format_string!/2` for the list of options.
   """
   def to_algebra!(string, opts \\ []) do
     case to_algebra(string, opts) do
@@ -1353,8 +1353,17 @@ defmodule Code.Formatter do
   defp bitstring_segment_to_algebra({{:::, _, [segment, spec]}, i}, state, last) do
     {doc, state} = quoted_to_algebra(segment, :parens_arg, state)
     {spec, state} = bitstring_spec_to_algebra(spec, state)
-    doc = concat(concat(doc, "::"), wrap_in_parens_if_inspected_atom(spec))
-    {bitstring_wrap_parens(doc, i, last), state}
+
+    spec = wrap_in_parens_if_inspected_atom(spec)
+    spec = if i == last, do: bitstring_wrap_parens(spec, i, last), else: spec
+
+    doc =
+      doc
+      |> bitstring_wrap_parens(i, -1)
+      |> concat("::")
+      |> concat(spec)
+
+    {doc, state}
   end
 
   defp bitstring_segment_to_algebra({segment, i}, state, last) do
@@ -1372,20 +1381,18 @@ defmodule Code.Formatter do
     quoted_to_algebra_with_parens_if_operator(spec, :parens_arg, state)
   end
 
-  defp bitstring_wrap_parens(doc, i, last) do
-    if i == 0 or i == last do
-      string = format_to_string(doc)
+  defp bitstring_wrap_parens(doc, i, last) when i == 0 or i == last do
+    string = format_to_string(doc)
 
-      if (i == 0 and String.starts_with?(string, "<<")) or
-           (i == last and String.ends_with?(string, ">>")) do
-        wrap_in_parens(doc)
-      else
-        doc
-      end
+    if (i == 0 and String.starts_with?(string, ["~", "<<"])) or
+         (i == last and String.ends_with?(string, [">>"])) do
+      wrap_in_parens(doc)
     else
       doc
     end
   end
+
+  defp bitstring_wrap_parens(doc, _, _), do: doc
 
   ## Literals
 

@@ -20,7 +20,7 @@ defmodule Logger.Formatter do
     * `$message`  - the log message
     * `$level`    - the log level
     * `$node`     - the node that prints the message
-    * `$metadata` - user controlled data presented in `"key=val key2=val2"` format
+    * `$metadata` - user controlled data presented in `"key=val key2=val2 "` format
     * `$levelpad` - sets to a single space if level is 4 characters long,
       otherwise set to the empty space. Used to align the message after level.
 
@@ -35,7 +35,7 @@ defmodule Logger.Formatter do
   Metadata to be sent to the logger can be read and written with
   the `Logger.metadata/0` and `Logger.metadata/1` functions. For example,
   you can set `Logger.metadata([user_id: 13])` to add user_id metadata
-  to the current process. The user can configure the backend to chose
+  to the current process. The user can configure the backend to choose
   which metadata it wants to print and it will replace the `$metadata`
   value.
   """

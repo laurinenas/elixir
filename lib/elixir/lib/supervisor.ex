@@ -34,13 +34,13 @@ defmodule Supervisor do
         end
 
         @impl true
-        def handle_call(:pop, _from, [h | t]) do
-          {:reply, h, t}
+        def handle_call(:pop, _from, [head | tail]) do
+          {:reply, head, tail}
         end
 
         @impl true
-        def handle_cast({:push, h}, t) do
-          {:noreply, [h | t]}
+        def handle_cast({:push, head}, tail) do
+          {:noreply, [head | tail]}
         end
       end
 
@@ -96,8 +96,8 @@ defmodule Supervisor do
 
   Supervisors support different strategies; in the example above, we
   have chosen `:one_for_one`. Furthermore, each supervisor can have many
-  workers and supervisors as children, each of them with their specific
-  configuration, shutdown values, and restart strategies.
+  workers and/or supervisors as children, with each one having its own
+  configuration (as outlined in the “Child specification” section).
 
   The rest of this document will cover how child processes are started,
   how they can be specified, different supervision strategies and more.
@@ -212,7 +212,8 @@ defmodule Supervisor do
     * `:permanent` - the child process is always restarted.
 
     * `:temporary` - the child process is never restarted, regardless
-      of the supervision strategy.
+      of the supervision strategy: any termination (even abnormal) is
+      considered successful.
 
     * `:transient` - the child process is restarted only if it
       terminates abnormally, i.e., with an exit reason other than
@@ -416,7 +417,7 @@ defmodule Supervisor do
 
   The second argument is a keyword list of options:
 
-    * `:strategy` - the restart strategy option. It can be either
+    * `:strategy` - the supervision strategy option. It can be either
       `:one_for_one`, `:rest_for_one` or `:one_for_all`. Required.
       See the "Strategies" section.
 
@@ -446,6 +447,9 @@ defmodule Supervisor do
       the child processes, i.e., the child processes after the terminated
       one in start order, are terminated. Then the terminated child
       process and the rest of the child processes are restarted.
+
+  In the above, process termination refers to unsuccessful termination, which
+  is determined by the `:restart` option.
 
   There is also a deprecated strategy called `:simple_one_for_one` which
   has been replaced by the `DynamicSupervisor`. The `:simple_one_for_one`
@@ -536,7 +540,7 @@ defmodule Supervisor do
           required(:id) => term(),
           required(:start) => {module(), atom(), [term()]},
           optional(:restart) => :permanent | :transient | :temporary,
-          optional(:shutdown) => :brutal_kill | non_neg_integer() | :infinity,
+          optional(:shutdown) => timeout() | :brutal_kill,
           optional(:type) => :worker | :supervisor,
           optional(:modules) => [module()] | :dynamic
         }
@@ -597,7 +601,7 @@ defmodule Supervisor do
 
   ## Options
 
-    * `:strategy` - the restart strategy option. It can be either
+    * `:strategy` - the supervision strategy option. It can be either
       `:one_for_one`, `:rest_for_one`, `:one_for_all`, or the deprecated
       `:simple_one_for_one`.
 
@@ -712,8 +716,8 @@ defmodule Supervisor do
   If a module is given, the specification is retrieved by calling
   `module.child_spec(arg)`.
 
-  After the child specification is retrieved, the fields on `config`
-  are directly applied on the child spec. If `config` has keys that
+  After the child specification is retrieved, the fields on `overrides`
+  are directly applied on the child spec. If `overrides` has keys that
   do not map to any child specification field, an error is raised.
 
   See the "Child specification" section in the module documentation
@@ -855,9 +859,9 @@ defmodule Supervisor do
   """
   @spec terminate_child(supervisor, term()) :: :ok | {:error, error}
         when error: :not_found | :simple_one_for_one
-  # TODO: Deprecate this on Elixir v1.8
   def terminate_child(supervisor, child_id)
 
+  # TODO: Deprecate this clause on Elixir v1.8
   def terminate_child(supervisor, pid) when is_pid(pid) do
     call(supervisor, {:terminate_child, pid})
   end

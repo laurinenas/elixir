@@ -2,10 +2,8 @@ defmodule Exception do
   @moduledoc """
   Functions to format throw/catch/exit and exceptions.
 
-  Note that stacktraces in Elixir are updated on throw,
-  errors and exits. For example, at any given moment,
-  `System.stacktrace/0` will return the stacktrace for the
-  last throw/error/exit that occurred in the current process.
+  Note that stacktraces in Elixir are only available inside
+  catch and rescue by using the `__STACKTRACE__/0` variable.
 
   Do not rely on the particular format returned by the `format*`
   functions in this module. They may be changed in future releases
@@ -82,31 +80,16 @@ defmodule Exception do
   normalizes only `:error`, returning the untouched payload
   for others.
 
-  The third argument, a stacktrace, is optional. If it is
-  not supplied `System.stacktrace/0` will sometimes be used
-  to get additional information for the `kind` `:error`. If
-  the stacktrace is unknown and `System.stacktrace/0` would
-  not return the stacktrace corresponding to the exception
-  an empty stacktrace, `[]`, must be used.
+  The third argument is the stacktrace which is used to enrich
+  a normalized error with more information. It is only used when
+  the kind is an error.
   """
   @spec normalize(:error, any, stacktrace) :: t
   @spec normalize(non_error_kind, payload, stacktrace) :: payload when payload: var
-
-  # Generating a stacktrace is expensive, default to nil
-  # to only fetch it when needed.
-  def normalize(kind, payload, stacktrace \\ nil)
-
-  def normalize(:error, exception, stacktrace) do
-    if exception?(exception) do
-      exception
-    else
-      ErlangError.normalize(exception, stacktrace)
-    end
-  end
-
-  def normalize(_kind, payload, _stacktrace) do
-    payload
-  end
+  def normalize(kind, payload, stacktrace \\ [])
+  def normalize(:error, %_{__exception__: true} = payload, _stacktrace), do: payload
+  def normalize(:error, payload, stacktrace), do: ErlangError.normalize(payload, stacktrace)
+  def normalize(_kind, payload, _stacktrace), do: payload
 
   @doc """
   Normalizes and formats any throw/error/exit.
@@ -114,15 +97,12 @@ defmodule Exception do
   The message is formatted and displayed in the same
   format as used by Elixir's CLI.
 
-  The third argument, a stacktrace, is optional. If it is
-  not supplied `System.stacktrace/0` will sometimes be used
-  to get additional information for the `kind` `:error`. If
-  the stacktrace is unknown and `System.stacktrace/0` would
-  not return the stacktrace corresponding to the exception
-  an empty stacktrace, `[]`, must be used.
+  The third argument is the stacktrace which is used to enrich
+  a normalized error with more information. It is only used when
+  the kind is an error.
   """
-  @spec format_banner(kind, any, stacktrace | nil) :: String.t()
-  def format_banner(kind, exception, stacktrace \\ nil)
+  @spec format_banner(kind, any, stacktrace) :: String.t()
+  def format_banner(kind, exception, stacktrace \\ [])
 
   def format_banner(:error, exception, stacktrace) do
     exception = normalize(:error, exception, stacktrace)
@@ -150,15 +130,14 @@ defmodule Exception do
   Note that `{:EXIT, pid}` do not generate a stacktrace though
   (as they are retrieved as messages without stacktraces).
   """
-  @spec format(kind, any, stacktrace | nil) :: String.t()
-  def format(kind, payload, stacktrace \\ nil)
+  @spec format(kind, any, stacktrace) :: String.t()
+  def format(kind, payload, stacktrace \\ [])
 
   def format({:EXIT, _} = kind, any, _) do
     format_banner(kind, any)
   end
 
   def format(kind, payload, stacktrace) do
-    stacktrace = stacktrace || System.stacktrace()
     message = format_banner(kind, payload, stacktrace)
 
     case stacktrace do
@@ -171,7 +150,7 @@ defmodule Exception do
   Attaches information to exceptions for extra debugging.
 
   This operation is potentially expensive, as it reads data
-  from the filesystem, parse beam files, evaluates code and
+  from the filesystem, parses beam files, evaluates code and
   so on.
 
   If the exception module implements the optional `c:blame/2`
@@ -703,6 +682,7 @@ end
 defmodule SystemLimitError do
   defexception []
 
+  @impl true
   def message(_) do
     "a system limit has been reached"
   end
@@ -711,6 +691,7 @@ end
 defmodule SyntaxError do
   defexception [:file, :line, description: "syntax error"]
 
+  @impl true
   def message(exception) do
     Exception.format_file_line(Path.relative_to_cwd(exception.file), exception.line) <>
       " " <> exception.description
@@ -720,6 +701,7 @@ end
 defmodule TokenMissingError do
   defexception [:file, :line, description: "expression is incomplete"]
 
+  @impl true
   def message(%{file: file, line: line, description: description}) do
     Exception.format_file_line(file && Path.relative_to_cwd(file), line) <> " " <> description
   end
@@ -728,6 +710,7 @@ end
 defmodule CompileError do
   defexception [:file, :line, description: "compile error"]
 
+  @impl true
   def message(%{file: file, line: line, description: description}) do
     Exception.format_file_line(file && Path.relative_to_cwd(file), line) <> " " <> description
   end
@@ -736,6 +719,7 @@ end
 defmodule BadFunctionError do
   defexception [:term]
 
+  @impl true
   def message(exception) do
     "expected a function, got: #{inspect(exception.term)}"
   end
@@ -744,6 +728,7 @@ end
 defmodule BadStructError do
   defexception [:struct, :term]
 
+  @impl true
   def message(exception) do
     "expected a struct named #{inspect(exception.struct)}, got: #{inspect(exception.term)}"
   end
@@ -752,6 +737,7 @@ end
 defmodule BadMapError do
   defexception [:term]
 
+  @impl true
   def message(exception) do
     "expected a map, got: #{inspect(exception.term)}"
   end
@@ -760,6 +746,7 @@ end
 defmodule BadBooleanError do
   defexception [:term, :operator]
 
+  @impl true
   def message(exception) do
     "expected a boolean on left-side of \"#{exception.operator}\", got: #{inspect(exception.term)}"
   end
@@ -768,6 +755,7 @@ end
 defmodule MatchError do
   defexception [:term]
 
+  @impl true
   def message(exception) do
     "no match of right hand side value: #{inspect(exception.term)}"
   end
@@ -776,6 +764,7 @@ end
 defmodule CaseClauseError do
   defexception [:term]
 
+  @impl true
   def message(exception) do
     "no case clause matching: #{inspect(exception.term)}"
   end
@@ -784,6 +773,7 @@ end
 defmodule WithClauseError do
   defexception [:term]
 
+  @impl true
   def message(exception) do
     "no with clause matching: #{inspect(exception.term)}"
   end
@@ -792,6 +782,7 @@ end
 defmodule CondClauseError do
   defexception []
 
+  @impl true
   def message(_exception) do
     "no cond clause evaluated to a true value"
   end
@@ -800,6 +791,7 @@ end
 defmodule TryClauseError do
   defexception [:term]
 
+  @impl true
   def message(exception) do
     "no try clause matching: #{inspect(exception.term)}"
   end
@@ -808,6 +800,7 @@ end
 defmodule BadArityError do
   defexception [:function, :args]
 
+  @impl true
   def message(exception) do
     fun = exception.function
     args = exception.args
@@ -824,6 +817,7 @@ end
 defmodule UndefinedFunctionError do
   defexception [:module, :function, :arity, :reason, :exports]
 
+  @impl true
   def message(%{reason: nil, module: module, function: function, arity: arity} = e) do
     cond do
       is_nil(function) or is_nil(arity) ->
@@ -940,6 +934,7 @@ end
 defmodule FunctionClauseError do
   defexception [:module, :function, :arity, :kind, :args, :clauses]
 
+  @impl true
   def message(exception) do
     case exception do
       %{function: nil} ->
@@ -952,6 +947,7 @@ defmodule FunctionClauseError do
     end
   end
 
+  @impl true
   def blame(%{module: module, function: function, arity: arity} = exception, stacktrace) do
     case stacktrace do
       [{^module, ^function, args, meta} | rest] when length(args) == arity ->
@@ -1031,6 +1027,7 @@ end
 defmodule Protocol.UndefinedError do
   defexception [:protocol, :value, description: ""]
 
+  @impl true
   def message(%{protocol: protocol, value: value, description: description}) do
     "protocol #{inspect(protocol)} not implemented for #{inspect(value)}" <>
       maybe_description(description) <> maybe_available(protocol)
@@ -1056,6 +1053,7 @@ end
 defmodule KeyError do
   defexception [:key, :term]
 
+  @impl true
   def message(exception) do
     msg = "key #{inspect(exception.key)} not found"
 
@@ -1101,6 +1099,7 @@ end
 defmodule File.Error do
   defexception [:reason, :path, action: ""]
 
+  @impl true
   def message(%{action: action, reason: reason, path: path}) do
     formatted =
       case {action, reason} do
@@ -1118,6 +1117,7 @@ end
 defmodule File.CopyError do
   defexception [:reason, :source, :destination, on: "", action: ""]
 
+  @impl true
   def message(exception) do
     formatted = IO.iodata_to_binary(:file.format_error(exception.reason))
 
@@ -1135,6 +1135,7 @@ end
 defmodule File.LinkError do
   defexception [:reason, :existing, :new, action: ""]
 
+  @impl true
   def message(exception) do
     formatted = IO.iodata_to_binary(:file.format_error(exception.reason))
 
@@ -1146,6 +1147,7 @@ end
 defmodule ErlangError do
   defexception [:original]
 
+  @impl true
   def message(exception) do
     "Erlang error: #{inspect(exception.original)}"
   end
@@ -1193,7 +1195,7 @@ defmodule ErlangError do
 
   def normalize({:badkey, key}, stacktrace) do
     term =
-      case ensure_stacktrace(stacktrace) do
+      case stacktrace do
         [{Map, :get_and_update!, [map, _, _], _} | _] -> map
         [{Map, :update!, [map, _, _], _} | _] -> map
         [{:maps, :update, [_, _, map], _} | _] -> map
@@ -1221,13 +1223,12 @@ defmodule ErlangError do
   end
 
   def normalize(:undef, stacktrace) do
-    stacktrace = ensure_stacktrace(stacktrace)
     {mod, fun, arity} = from_stacktrace(stacktrace)
     %UndefinedFunctionError{module: mod, function: fun, arity: arity}
   end
 
   def normalize(:function_clause, stacktrace) do
-    {mod, fun, arity} = from_stacktrace(ensure_stacktrace(stacktrace))
+    {mod, fun, arity} = from_stacktrace(stacktrace)
     %FunctionClauseError{module: mod, function: fun, arity: arity}
   end
 
@@ -1237,18 +1238,6 @@ defmodule ErlangError do
 
   def normalize(other, _stacktrace) do
     %ErlangError{original: other}
-  end
-
-  defp ensure_stacktrace(nil) do
-    try do
-      :erlang.get_stacktrace()
-    rescue
-      _ -> []
-    end
-  end
-
-  defp ensure_stacktrace(stacktrace) do
-    stacktrace
   end
 
   defp from_stacktrace([{module, function, args, _} | _]) when is_list(args) do

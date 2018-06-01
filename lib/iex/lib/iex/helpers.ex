@@ -241,10 +241,16 @@ defmodule IEx.Helpers do
 
       subl path/to/file:line
 
-  Custom editors are supported by using the __FILE__ and __LINE__
-  notations. For example, vi/vim users can set `ELIXIR_EDITOR` to:
+  It is important that you choose an editor command that does
+  not block nor that attempts to run an editor directly in the
+  terminal. Command-line based editors likely need extra
+  configuration so they open up the given file and line in a
+  separate window.
 
-      ELIXIR_EDITOR="vi +__LINE__ __FILE__"
+  Custom editors are supported by using the `__FILE__` and
+  `__LINE__` notations, for example:
+
+      ELIXIR_EDITOR="my_editor +__LINE__ __FILE__"
 
   and Elixir will properly interpolate values.
 
@@ -252,8 +258,8 @@ defmodule IEx.Helpers do
   `ELIXIR_EDITOR` can be set "echo" if you prefer to display the
   location rather than opening it.
 
-  Keep in mind the location may not exist when opening
-  precompiled source code, such as Elixir itself.
+  Keep in mind the location may not exist when opening precompiled
+  source code.
 
   ## Examples
 
@@ -308,6 +314,7 @@ defmodule IEx.Helpers do
       iex> b(Mix.Task.run/1)
       iex> b(Mix.Task.run)
       iex> b(GenServer)
+
   """
   defmacro b(term) do
     quote do
@@ -518,7 +525,7 @@ defmodule IEx.Helpers do
     print_pane("System and architecture")
 
     print_entry("Elixir version", System.version())
-    print_entry("OTP version", :erlang.system_info(:otp_release))
+    print_entry("Erlang/OTP version", :erlang.system_info(:otp_release))
     print_entry("ERTS version", :erlang.system_info(:version))
     print_entry("Compiled for", :erlang.system_info(:system_architecture))
     print_entry("Schedulers", :erlang.system_info(:schedulers))

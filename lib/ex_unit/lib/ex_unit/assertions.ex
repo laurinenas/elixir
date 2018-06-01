@@ -18,6 +18,7 @@ defmodule ExUnit.AssertionError do
     @no_value
   end
 
+  @impl true
   def message(exception) do
     "\n\n" <> ExUnit.Formatter.format_assertion_error(exception)
   end
@@ -30,6 +31,7 @@ defmodule ExUnit.MultiError do
 
   defexception errors: []
 
+  @impl true
   def message(%{errors: errors}) do
     "got the following errors:\n\n" <>
       Enum.map_join(errors, "\n\n", fn {kind, error, stack} ->
@@ -639,6 +641,7 @@ defmodule ExUnit.Assertions do
       assert_raise RuntimeError, ~r/^today's lucky number is 0\.\d+!$/, fn ->
         raise "today's lucky number is #{:rand.uniform()}!"
       end
+
   """
   def assert_raise(exception, message, function) when is_function(function) do
     error = assert_raise(exception, function)

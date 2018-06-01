@@ -353,7 +353,15 @@ defmodule IEx.Introspection do
   end
 
   def h(invalid) do
-    puts_error("Invalid arguments for h helper: #{inspect(invalid)}")
+    puts_error(
+      "The \"h\" helper expects a Module, Module.fun or Module.fun/arity, got: #{inspect(invalid)}"
+    )
+
+    puts_error(
+      "If instead of accessing documentation you would like to more information about a value " <>
+        "or about the result of an expression, use the \"i\" helper instead"
+    )
+
     dont_display_result()
   end
 
@@ -673,9 +681,10 @@ defmodule IEx.Introspection do
   end
 
   defp type_doc(module, type, arity) do
-    docs = Code.get_docs(module, :type_docs)
-    {_, _, _, content} = Enum.find(docs, &match?({{^type, ^arity}, _, _, _}, &1))
-    content
+    if docs = Code.get_docs(module, :type_docs) do
+      {_, _, _, content} = Enum.find(docs, &match?({{^type, ^arity}, _, _, _}, &1))
+      content
+    end
   end
 
   defp format_type({:opaque, type}) do

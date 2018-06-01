@@ -17,11 +17,11 @@ defmodule Mix.Tasks.Compile.App do
 
   The most commonly used options are:
 
-    * `:extra_applications` - a list of Erlang/Elixir applications
+    * `:extra_applications` - a list of OTP applications
       your application depends on which are not included in `:deps`
       (usually defined in `deps/0` in your `mix.exs`). For example,
       here you can declare a dependency on applications that ship with
-      Erlang or Elixir, like `:crypto` or `:logger`, but anything in
+      Erlang/OTP or Elixir, like `:crypto` or `:logger`, but anything in
       the code path works. Mix guarantees that these applications and
       the rest of your runtime dependencies are started before your
       application starts.
@@ -201,19 +201,17 @@ defmodule Mix.Tasks.Compile.App do
     Enum.map(beams, &(&1 |> Path.basename() |> Path.rootname(".beam") |> String.to_atom()))
   end
 
-  defp language_app(config) do
-    case Keyword.fetch(config, :language) do
-      {:ok, :elixir} -> [:elixir]
-      {:ok, :erlang} -> []
-      :error -> [:elixir]
-    end
-  end
-
   defp ensure_correct_properties(properties, config) do
-    properties
-    |> validate_properties!
-    |> Keyword.put_new_lazy(:applications, fn -> apps_from_prod_non_optional_deps(properties) end)
-    |> Keyword.update!(:applications, fn apps -> normalize_apps(apps, properties, config) end)
+    validate_properties!(properties)
+    {extra, properties} = Keyword.pop(properties, :extra_applications, [])
+
+    apps =
+      properties
+      |> Keyword.get(:applications)
+      |> Kernel.||(apps_from_prod_non_optional_deps(properties))
+      |> normalize_apps(extra, config)
+
+    Keyword.put(properties, :applications, apps)
   end
 
   defp validate_properties!(properties) do
@@ -313,8 +311,6 @@ defmodule Mix.Tasks.Compile.App do
       _ ->
         :ok
     end)
-
-    properties
   end
 
   defp apps_from_prod_non_optional_deps(properties) do
@@ -328,8 +324,15 @@ defmodule Mix.Tasks.Compile.App do
         do: app
   end
 
-  defp normalize_apps(apps, properties, config) do
-    extra = Keyword.get(properties, :extra_applications, [])
+  defp normalize_apps(apps, extra, config) do
     Enum.uniq([:kernel, :stdlib] ++ language_app(config) ++ extra ++ apps)
+  end
+
+  defp language_app(config) do
+    case Keyword.fetch(config, :language) do
+      {:ok, :elixir} -> [:elixir]
+      {:ok, :erlang} -> []
+      :error -> [:elixir]
+    end
   end
 end

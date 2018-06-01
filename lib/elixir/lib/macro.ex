@@ -526,11 +526,13 @@ defmodule Macro do
   end
 
   @doc false
+  @deprecated "Traverse over the arguments using Enum.map/2 instead"
   def unescape_tokens(tokens) do
     :elixir_interpolation.unescape_tokens(tokens)
   end
 
   @doc false
+  @deprecated "Traverse over the arguments using Enum.map/2 instead"
   def unescape_tokens(tokens, map) do
     :elixir_interpolation.unescape_tokens(tokens, map)
   end
@@ -806,7 +808,7 @@ defmodule Macro do
 
         binary when is_binary(binary) ->
           binary = inspect_no_limit(binary)
-          :binary.part(binary, 1, byte_size(binary) - 2)
+          binary_part(binary, 1, byte_size(binary) - 2)
       end)
 
     <<?", parts::binary, ?">>
@@ -1078,7 +1080,7 @@ defmodule Macro do
 
     * Macros (local or remote)
     * Aliases are expanded (if possible) and return atoms
-    * Compilation environment macros (`__ENV__/0`, `__MODULE__/0` and `__DIR__/0`)
+    * Compilation environment macros (`__CALLER__/0`, `__DIR__/0`, `__ENV__/0` and `__MODULE__/0`)
     * Module attributes reader (`@foo`)
 
   If the expression cannot be expanded, it returns the expression

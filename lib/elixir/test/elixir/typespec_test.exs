@@ -435,6 +435,21 @@ defmodule TypespecTest do
       assert [{:atom, 0, :timestamp}, {:type, 0, :term, []}, {:atom, 0, :foo}] = args
     end
 
+    test "@type with named record" do
+      bytecode =
+        test_module do
+          require Record
+          Record.defrecord(:timestamp, :my_timestamp, date: 1, time: 2)
+          @type my_type :: record(:timestamp, time: :foo)
+        end
+
+      assert [type: {:my_type, type, []}] = types(bytecode)
+      assert {:type, _, :tuple, [my_timestamp, term, foo]} = type
+      assert {:atom, 0, :my_timestamp} = my_timestamp
+      assert {:type, 0, :term, []} = term
+      assert {:atom, 0, :foo} = foo
+    end
+
     test "@type with undefined record" do
       assert_raise CompileError, ~r"unknown record :this_record_does_not_exist", fn ->
         test_module do
@@ -890,6 +905,32 @@ defmodule TypespecTest do
       Enum.each(specs_with_quoted, fn {spec, definition} ->
         assert Macro.to_string(spec) == Macro.to_string(definition)
       end)
+    end
+
+    test "non-variables are given as arguments" do
+      msg = ~r/The type one_bad_variable\/1 has an invalid argument\(s\): String.t\(\)/
+
+      assert_raise CompileError, msg, fn ->
+        test_module do
+          @type one_bad_variable(String.t()) :: String.t()
+        end
+      end
+
+      msg = ~r/The type two_bad_variables\/2 has an invalid argument\(s\): :ok, Enum.t\(\)/
+
+      assert_raise CompileError, msg, fn ->
+        test_module do
+          @type two_bad_variables(:ok, Enum.t()) :: {:ok, []}
+        end
+      end
+
+      msg = ~r/The type one_bad_one_good\/2 has an invalid argument\(s\): \"\"/
+
+      assert_raise CompileError, msg, fn ->
+        test_module do
+          @type one_bad_one_good(input1, "") :: {:ok, input1}
+        end
+      end
     end
 
     test "retrieval invalid data" do

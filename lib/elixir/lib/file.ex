@@ -90,8 +90,13 @@ defmodule File do
           | :read
           | :read_ahead
           | :sync
-          | :utf8
           | :write
+          | {:read_ahead, pos_integer}
+          | {:delayed_write, non_neg_integer, non_neg_integer}
+          | encoding_mode()
+
+  @type encoding_mode ::
+          :utf8
           | {
               :encoding,
               :latin1
@@ -102,7 +107,11 @@ defmodule File do
               | {:utf16, :big | :little}
               | {:utf32, :big | :little}
             }
-          | {:read_ahead, pos_integer}
+
+  @type stream_mode ::
+          encoding_mode()
+          | :trim_bom
+          | {:read_ahead, pos_integer | false}
           | {:delayed_write, non_neg_integer, non_neg_integer}
 
   @doc """
@@ -654,6 +663,7 @@ defmodule File do
 
       # Rename directory "samples" to "tmp"
       File.rename "samples", "tmp"
+
   """
   @spec rename(Path.t(), Path.t()) :: :ok | {:error, posix}
   def rename(source, destination) do
@@ -1023,14 +1033,19 @@ defmodule File do
 
   @doc """
   Tries to delete the dir at `path`.
+
   Returns `:ok` if successful, or `{:error, reason}` if an error occurs.
+  It returns `{:error, :eexist}` if the directory is not empty.
 
   ## Examples
 
-      File.rmdir('tmp_dir')
+      File.rmdir("tmp_dir")
       #=> :ok
 
-      File.rmdir('file.txt')
+      File.rmdir("non_empty_dir")
+      #=> {:error, :eexist}
+
+      File.rmdir("file.txt")
       #=> {:error, :enotdir}
 
   """
@@ -1519,7 +1534,7 @@ defmodule File do
   See `Stream.run/1` for an example of streaming into a file.
 
   """
-  @spec stream!(Path.t(), [mode | :trim_bom], :line | pos_integer) :: File.Stream.t()
+  @spec stream!(Path.t(), stream_mode, :line | pos_integer) :: File.Stream.t()
   def stream!(path, modes \\ [], line_or_bytes \\ :line) do
     modes = normalize_modes(modes, true)
     File.Stream.__build__(IO.chardata_to_string(path), modes, line_or_bytes)

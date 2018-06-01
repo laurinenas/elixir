@@ -248,7 +248,7 @@ defmodule Mix.Tasks.New do
   embed_template(:formatter, """
   # Used by "mix format"
   [
-    inputs: ["mix.exs", "{config,lib,test}/**/*.{ex,exs}"]
+    inputs: ["{mix,.formatter}.exs", "{config,lib,test}/**/*.{ex,exs}"]
   ]
   """)
 
@@ -407,7 +407,7 @@ defmodule Mix.Tasks.New do
   # Configuration from the imported file will override the ones defined
   # here (which is why it is important to import them last).
   #
-  #     import_config "#{Mix.env}.exs"
+  #     import_config "#{Mix.env()}.exs"
   """)
 
   embed_template(:config_umbrella, ~S"""

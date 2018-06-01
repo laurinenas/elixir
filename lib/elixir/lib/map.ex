@@ -104,6 +104,8 @@ defmodule Map do
   @doc """
   Returns all keys from `map`.
 
+  Inlined by the compiler.
+
   ## Examples
 
       iex> Map.keys(%{a: 1, b: 2})
@@ -115,6 +117,8 @@ defmodule Map do
 
   @doc """
   Returns all values from `map`.
+
+  Inlined by the compiler.
 
   ## Examples
 
@@ -130,6 +134,8 @@ defmodule Map do
 
   Each key-value pair in the map is converted to a two-element tuple `{key,
   value}` in the resulting list.
+
+  Inlined by the compiler.
 
   ## Examples
 
@@ -211,6 +217,8 @@ defmodule Map do
   @doc """
   Returns whether the given `key` exists in the given `map`.
 
+  Inlined by the compiler.
+
   ## Examples
 
       iex> Map.has_key?(%{a: 1}, :a)
@@ -218,7 +226,6 @@ defmodule Map do
       iex> Map.has_key?(%{a: 1}, :b)
       false
 
-  Inlined by the compiler.
   """
   @spec has_key?(map, key) :: boolean
   def has_key?(map, key), do: :maps.is_key(key, map)
@@ -229,6 +236,8 @@ defmodule Map do
   If `map` contains the given `key` with value `value`, then `{:ok, value}` is
   returned. If `map` doesn't contain `key`, `:error` is returned.
 
+  Inlined by the compiler.
+
   ## Examples
 
       iex> Map.fetch(%{a: 1}, :a)
@@ -236,7 +245,6 @@ defmodule Map do
       iex> Map.fetch(%{a: 1}, :b)
       :error
 
-  Inlined by the compiler.
   """
   @spec fetch(map, key) :: {:ok, value} | :error
   def fetch(map, key), do: :maps.find(key, map)
@@ -247,6 +255,8 @@ defmodule Map do
 
   If `map` contains the given `key`, the corresponding value is returned. If
   `map` doesn't contain `key`, a `KeyError` exception is raised.
+
+  Inlined by the compiler.
 
   ## Examples
 
@@ -288,6 +298,7 @@ defmodule Map do
   end
 
   @doc false
+  @deprecated "Use Map.fetch/2 + Map.put/3 instead"
   def replace(map, key, value) do
     case map do
       %{^key => _value} ->
@@ -307,6 +318,8 @@ defmodule Map do
 
   If `key` is not present in `map`, a `KeyError` exception is raised.
 
+  Inlined by the compiler.
+
   ## Examples
 
       iex> Map.replace!(%{a: 1, b: 2}, :a, 3)
@@ -315,7 +328,6 @@ defmodule Map do
       iex> Map.replace!(%{a: 1}, :b, 2)
       ** (KeyError) key :b not found in: %{a: 1}
 
-  Inlined by the compiler.
   """
   @since "1.5.0"
   @spec replace!(map, key, value) :: map
@@ -469,6 +481,8 @@ defmodule Map do
   @doc """
   Puts the given `value` under `key` in `map`.
 
+  Inlined by the compiler.
+
   ## Examples
 
       iex> Map.put(%{a: 1}, :b, 2)
@@ -476,7 +490,6 @@ defmodule Map do
       iex> Map.put(%{a: 1, b: 2}, :a, 3)
       %{a: 3, b: 2}
 
-  Inlined by the compiler.
   """
   @spec put(map, key, value) :: map
   def put(map, key, value) do
@@ -487,6 +500,8 @@ defmodule Map do
   Deletes the entry in `map` for a specific `key`.
 
   If the `key` does not exist, returns `map` unchanged.
+
+  Inlined by the compiler.
 
   ## Examples
 
@@ -510,6 +525,8 @@ defmodule Map do
   struct, do not use this function, as it would merge all keys on the right
   side into the struct, even if the key is not part of the struct. Instead,
   use `Kernel.struct/2`.
+
+  Inlined by the compiler.
 
   ## Examples
 
@@ -881,7 +898,7 @@ defmodule Map do
 
   @doc false
   # TODO: Remove on 2.0
-  # (hard-deprecated in elixir_dispatch)
+  @deprecated "Use Kernel.map_size/1 instead"
   def size(map) do
     map_size(map)
   end

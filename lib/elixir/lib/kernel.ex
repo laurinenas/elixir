@@ -129,14 +129,18 @@ defmodule Kernel do
   Elixir documentation also includes supporting documents under the
   "Pages" section. Those are:
 
-    * [Deprecations](deprecations.html) - lists all deprecated functions,
+    * [Compatibility and Deprecations](compatibility-and-deprecations.html) - lists compatibility
+      between every Elixir version and Erlang/OTP, release schema; lists all deprecated functions,
       when they were deprecated and alternatives
     * [Guards](guards.html) - lists all available guards and extensions
+    * [Library Guidelines](library-guidelines.html) - general guidelines, anti-patterns, and rules
+      for those writing libraries
     * [Naming Conventions](naming-conventions.html) - naming conventions
       for Elixir code
     * [Operators](operators.html) - lists all Elixir operators and their
       precedence
     * [Syntax Reference](syntax-reference.html) - the language syntax reference
+    * [Typespecs](typespecs.html)- types and function specifications, including list of types
     * [Unicode Syntax](unicode-syntax.html) - outline Elixir support for Unicode
     * [Writing Documentation](writing-documentation.html) - guidelines for
       writing documentation in Elixir.
@@ -299,13 +303,13 @@ defmodule Kernel do
   Raises an `ArithmeticError` exception if one of the arguments is not an
   integer, or when the `divisor` is `0`.
 
-  Allowed in guard tests. Inlined by the compiler.
-
   `div/2` performs *truncated* integer division. This means that
   the result is always rounded towards zero.
 
   If you want to perform floored integer division (rounding towards negative infinity),
   use `Integer.floor_div/2` instead.
+
+  Allowed in guard tests. Inlined by the compiler.
 
   ## Examples
 
@@ -382,11 +386,11 @@ defmodule Kernel do
       exit({:shutdown, integer})
 
   This will cause the OS process to exit with the status given by
-  `integer` while signaling all linked OTP processes to politely
+  `integer` while signaling all linked Erlang processes to politely
   shutdown.
 
   Any other exit reason will cause the OS process to exit with
-  status `1` and linked OTP processes to crash.
+  status `1` and linked Erlang processes to crash.
   """
   @spec exit(term) :: no_return
   def exit(reason) do
@@ -1755,12 +1759,8 @@ defmodule Kernel do
 
   Works like `raise/1` but does not generate a new stacktrace.
 
-  Notice that `System.stacktrace/0` returns the stacktrace
-  of the last exception. That said, it is common to assign
-  the stacktrace as the first expression inside a `rescue`
-  clause as any other exception potentially raised (and
-  rescued) between the rescue clause and the raise call
-  may change the `System.stacktrace/0` value.
+  Notice that `__STACKTRACE__` can be used inside catch/rescue
+  to retrieve the current stacktrace.
 
   ## Examples
 
@@ -1768,11 +1768,9 @@ defmodule Kernel do
         raise "oops"
       rescue
         exception ->
-          stacktrace = System.stacktrace
-          if Exception.message(exception) == "oops" do
-            reraise exception, stacktrace
-          end
+          reraise exception, __STACKTRACE__
       end
+
   """
   defmacro reraise(message, stacktrace) do
     # Try to figure out the type at compilation time
@@ -1813,8 +1811,7 @@ defmodule Kernel do
         raise "oops"
       rescue
         exception ->
-          stacktrace = System.stacktrace
-          reraise WrapperError, [exception: exception], stacktrace
+          reraise WrapperError, [exception: exception], __STACKTRACE__
       end
 
   """
@@ -2063,8 +2060,8 @@ defmodule Kernel do
       iex> get_in(users, ["unknown", :age])
       nil
 
-  When one of the keys is a function, the function is invoked.
-  In the example below, we use a function to get all the maps
+  When one of the keys is a function that takes three arguments, the function
+  is invoked. In the example below, we use a function to get all the maps
   inside a list:
 
       iex> users = [%{name: "john", age: 27}, %{name: "meg", age: 23}]
@@ -2106,7 +2103,7 @@ defmodule Kernel do
   an error will be raised when trying to access it next.
   """
   @spec put_in(Access.t(), nonempty_list(term), term) :: Access.t()
-  def put_in(data, keys, value) do
+  def put_in(data, [_ | _] = keys, value) do
     elem(get_and_update_in(data, keys, fn _ -> {nil, value} end), 1)
   end
 
@@ -2128,30 +2125,36 @@ defmodule Kernel do
   an error will be raised when trying to access it next.
   """
   @spec update_in(Access.t(), nonempty_list(term), (term -> term)) :: Access.t()
-  def update_in(data, keys, fun) when is_function(fun, 1) do
+  def update_in(data, [_ | _] = keys, fun) when is_function(fun) do
     elem(get_and_update_in(data, keys, fn x -> {nil, fun.(x)} end), 1)
   end
 
   @doc """
   Gets a value and updates a nested structure.
 
-  `data` is a nested structure (ie. a map, keyword
+  `data` is a nested structure (that is, a map, keyword
   list, or struct that implements the `Access` behaviour).
 
   The `fun` argument receives the value of `key` (or `nil` if `key`
-  is not present) and must return a two-element tuple: the "get" value
-  (the retrieved value, which can be operated on before being returned)
-  and the new value to be stored under `key`. The `fun` may also
-  return `:pop`, implying the current value shall be removed
-  from the structure and returned.
+  is not present) and must return one of the following values:
 
-  It uses the `Access` module to traverse the structures
+    * a two-element tuple `{get_value, new_value}`. In this case,
+      `get_value` is the retrieved value which can possibly be operated on before
+      being returned. `new_value` is the new value to be stored under `key`.
+
+    * `:pop`, which implies that the current value under `key`
+      should be removed from the structure and returned.
+
+  This function uses the `Access` module to traverse the structures
   according to the given `keys`, unless the `key` is a
   function.
 
   If a key is a function, the function will be invoked
-  passing three arguments, the operation (`:get_and_update`),
-  the data to be accessed, and a function to be invoked next.
+  passing three arguments:
+
+    * the operation (`:get_and_update`)
+    * the data to be accessed
+    * a function to be invoked next
 
   This means `get_and_update_in/3` can be extended to provide
   custom lookups. The downside is that functions cannot be stored
@@ -2161,8 +2164,8 @@ defmodule Kernel do
 
   This function is useful when there is a need to retrieve the current
   value (or something calculated in function of the current value) and
-  update it at the same time. For example, it could be used to increase
-  the age of a user by one and return the previous age in one pass:
+  update it at the same time. For example, it could be used to read the
+  current age of a user while increasing it by one in one pass:
 
       iex> users = %{"john" => %{age: 27}, "meg" => %{age: 23}}
       iex> get_and_update_in(users, ["john", :age], &{&1, &1 + 1})
@@ -2174,7 +2177,7 @@ defmodule Kernel do
 
       iex> users = [%{name: "john", age: 27}, %{name: "meg", age: 23}]
       iex> all = fn :get_and_update, data, next ->
-      ...>   Enum.map(data, next) |> :lists.unzip
+      ...>   data |> Enum.map(next) |> Enum.unzip()
       ...> end
       iex> get_and_update_in(users, [all, :age], &{&1, &1 + 1})
       {[27, 23], [%{name: "john", age: 28}, %{name: "meg", age: 24}]}
@@ -2185,7 +2188,7 @@ defmodule Kernel do
 
   The `Access` module ships with many convenience accessor functions,
   like the `all` anonymous function defined above. See `Access.all/0`,
-  `Access.key/2` and others as examples.
+  `Access.key/2`, and others as examples.
   """
   @spec get_and_update_in(
           structure :: Access.t(),
@@ -2225,6 +2228,11 @@ defmodule Kernel do
 
   In case any entry returns `nil`, its key will be removed
   and the deletion will be considered a success.
+
+      iex> users = %{"john" => %{age: 27}, "meg" => %{age: 23}}
+      iex> pop_in(users, ["jane", :age])
+      {nil, %{"john" => %{age: 27}, "meg" => %{age: 23}}}
+
   """
   @spec pop_in(data, nonempty_list(Access.get_and_update_fun(term, data) | term)) :: {term, data}
         when data: Access.container()
@@ -2234,7 +2242,7 @@ defmodule Kernel do
     raise ArgumentError, "could not pop key #{inspect(key)} on a nil value"
   end
 
-  def pop_in(data, keys) when is_list(keys) do
+  def pop_in(data, [_ | _] = keys) do
     pop_in_data(data, keys)
   end
 
@@ -4205,6 +4213,7 @@ defmodule Kernel do
       defmodule MyAppError do
         defexception [:message]
 
+        @impl true
         def exception(value) do
           msg = "did not get what was expected, got: #{inspect value}"
           %MyAppError{message: msg}
@@ -4222,18 +4231,21 @@ defmodule Kernel do
       struct = defstruct([__exception__: true] ++ fields)
 
       if Map.has_key?(struct, :message) do
+        @impl true
         def message(exception) do
           exception.message
         end
 
         defoverridable message: 1
 
+        @impl true
         def exception(msg) when is_binary(msg) do
           exception(message: msg)
         end
       end
 
       # TODO: Only call Kernel.struct! by 2.0
+      @impl true
       def exception(args) when is_list(args) do
         struct = __struct__()
         {valid, invalid} = Enum.split_with(args, fn {k, _} -> Map.has_key?(struct, k) end)
@@ -5034,6 +5046,7 @@ defmodule Kernel do
 
       iex> ~D[2015-01-13]
       ~D[2015-01-13]
+
   """
   defmacro sigil_D(date, modifiers)
 
@@ -5191,8 +5204,8 @@ defmodule Kernel do
   end
 
   @doc false
-  # TODO: Remove by 2.0
-  # (hard-deprecated in elixir_dispatch)
+  # TODO: Remove by 2.0 (also hard-coded in elixir_dispatch)
+  @deprecated "Use Kernel.to_charlist/1 instead"
   defmacro to_char_list(arg) do
     quote(do: Kernel.to_charlist(unquote(arg)))
   end

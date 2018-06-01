@@ -74,7 +74,7 @@ defmodule Application do
   The `type` argument passed to `start/2` is usually `:normal` unless in a
   distributed setup where application takeovers and failovers are configured.
   Distributed applications is beyond the scope of this documentation. For those
-  interested on the topic, please access the OTP documentation:
+  interested on the topic, please access the Erlang/OTP documentation:
 
     * [`:application` module](http://www.erlang.org/doc/man/application.html)
     * [Applications – OTP Design Principles](http://www.erlang.org/doc/design_principles/applications.html)
@@ -560,7 +560,7 @@ defmodule Application do
   @doc """
   Returns a list with information about the applications which are currently running.
   """
-  @spec started_applications(timeout) :: [tuple]
+  @spec started_applications(timeout) :: [{app, description :: charlist(), vsn :: charlist()}]
   def started_applications(timeout \\ 5000) do
     :application.which_applications(timeout)
   end
@@ -568,7 +568,7 @@ defmodule Application do
   @doc """
   Returns a list with information about the applications which have been loaded.
   """
-  @spec loaded_applications :: [tuple]
+  @spec loaded_applications :: [{app, description :: charlist(), vsn :: charlist()}]
   def loaded_applications do
     :application.loaded_applications()
   end

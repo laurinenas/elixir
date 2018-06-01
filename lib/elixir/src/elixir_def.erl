@@ -108,11 +108,18 @@ store_definition(Kind, CheckClauses, Call, Body, Pos) ->
   %% Now that we have verified the call format,
   %% extract meta information like file and context.
   {_, Meta, _} = Call,
-  DoCheckClauses = (not lists:keymember(context, 1, Meta)) andalso (CheckClauses),
-  Generated = case lists:keyfind(generated, 1, Meta) of
-    {generated, true} -> ?generated([]);
+
+  Context = case lists:keyfind(context, 1, Meta) of
+    {context, _} = ContextPair -> [ContextPair];
     _ -> []
   end,
+
+  Generated = case lists:keyfind(generated, 1, Meta) of
+    {generated, true} -> ?generated(Context);
+    _ -> Context
+  end,
+
+  DoCheckClauses = (Context == []) andalso (CheckClauses),
 
   %% Check if there is a file information in the definition.
   %% If so, we assume this come from another source and
@@ -159,12 +166,13 @@ store_definition(Meta, Kind, CheckClauses, Name, Arity, DefaultsArgs, Guards, Bo
   DefaultsLength = length(Defaults),
   elixir_locals:record_defaults(Tuple, Kind, Module, DefaultsLength),
   check_previous_defaults(Meta, Module, Name, Arity, Kind, DefaultsLength, E),
-  run_on_definition_callbacks(Kind, Module, Name, DefaultsArgs, Guards, Body, E),
 
   store_definition(CheckClauses, Kind, Meta, Name, Arity, File,
                    Module, DefaultsLength, Clauses),
   [store_definition(false, Kind, Meta, Name, length(DefaultArgs), File,
                     Module, 0, [Default]) || {_, DefaultArgs, _, _} = Default <- Defaults],
+
+  run_on_definition_callbacks(Kind, Module, Name, DefaultsArgs, Guards, Body, E),
   Tuple.
 
 env_for_expansion(Kind, Tuple, E) when Kind =:= defmacro; Kind =:= defmacrop ->
@@ -301,23 +309,28 @@ check_valid_kind(Meta, File, Name, Arity, Kind, StoredKind) ->
 
 check_valid_clause(Meta, File, Name, Arity, Kind, Set, StoredMeta, StoredFile) ->
   case ets:lookup_element(Set, ?last_def, 2) of
-    {Name, Arity} -> ok;
     none -> ok;
+    {Name, Arity} -> ok;
+    {Name, _} ->
+      Relative = elixir_utils:relative_to_cwd(StoredFile),
+      elixir_errors:form_warn(Meta, File, ?MODULE,
+        {ungrouped_name, {Kind, Name, Arity, ?line(StoredMeta), Relative}});
     _ ->
       Relative = elixir_utils:relative_to_cwd(StoredFile),
       elixir_errors:form_warn(Meta, File, ?MODULE,
-        {ungrouped_clause, {Kind, Name, Arity, ?line(StoredMeta), Relative}})
+        {ungrouped_arity, {Kind, Name, Arity, ?line(StoredMeta), Relative}})
   end.
 
 % Clause with defaults after clause with defaults
-check_valid_defaults(Meta, File, Name, Arity, Kind, Defaults, StoredDefaults, _, true, _) when Defaults > 0, StoredDefaults > 0 ->
-  elixir_errors:form_error(Meta, File, ?MODULE, {clauses_with_defaults, {Kind, Name, Arity}});
-% Clause with defaults after clause(s) without defaults
-check_valid_defaults(Meta, File, Name, Arity, Kind, Defaults, 0, 0, _, _) when Defaults > 0 ->
-  elixir_errors:form_warn(Meta, File, ?MODULE, {clauses_with_defaults, {Kind, Name, Arity}});
+check_valid_defaults(Meta, File, Name, Arity, Kind, Defaults, StoredDefaults, _, _, _)
+    when Defaults > 0, StoredDefaults > 0 ->
+  elixir_errors:form_error(Meta, File, ?MODULE, {duplicate_defaults, {Kind, Name, Arity}});
+% Clause with defaults after clause without defaults
+check_valid_defaults(Meta, File, Name, Arity, Kind, Defaults, 0, _, _, _) when Defaults > 0 ->
+  elixir_errors:form_warn(Meta, File, ?MODULE, {mixed_defaults, {Kind, Name, Arity}});
 % Clause without defaults directly after clause with defaults (bodiless does not count)
 check_valid_defaults(Meta, File, Name, Arity, Kind, 0, _, LastDefaults, true, true) when LastDefaults > 0 ->
-  elixir_errors:form_warn(Meta, File, ?MODULE, {clauses_with_defaults, {Kind, Name, Arity}});
+  elixir_errors:form_warn(Meta, File, ?MODULE, {mixed_defaults, {Kind, Name, Arity}});
 % Clause without defaults
 check_valid_defaults(_Meta, _File, _Name, _Arity, _Kind, 0, _StoredDefaults, _LastDefaults, _HasBody, _LastHasBody) ->
   ok.
@@ -381,9 +394,25 @@ format_error({defs_with_defaults, Kind, Name, Arity, A}) when Arity < A ->
   io_lib:format("~ts ~ts/~B conflicts with defaults from ~ts/~B",
     [Kind, Name, Arity, Name, A]);
 
-format_error({clauses_with_defaults, {Kind, Name, Arity}}) ->
-  io_lib:format(""
-    "definitions with multiple clauses and default values require a header. Instead of:\n"
+format_error({duplicate_defaults, {Kind, Name, Arity}}) ->
+  io_lib:format(
+    "~ts ~ts/~B defines defaults multiple times. "
+    "Elixir allows defaults to be declared once per definition. Instead of:\n"
+    "\n"
+    "    def foo(:first_clause, b \\\\ :default) do ... end\n"
+    "    def foo(:second_clause, b \\\\ :default) do ... end\n"
+    "\n"
+    "one should write:\n"
+    "\n"
+    "    def foo(a, b \\\\ :default)\n"
+    "    def foo(:first_clause, b) do ... end\n"
+    "    def foo(:second_clause, b) do ... end\n",
+    [Kind, Name, Arity]);
+
+format_error({mixed_defaults, {Kind, Name, Arity}}) ->
+  io_lib:format(
+    "~ts ~ts/~B has multiple clauses and also declares default values. "
+    "In such cases, the default values should be defined in a header. Instead of:\n"
     "\n"
     "    def foo(:first_clause, b \\\\ :default) do ... end\n"
     "    def foo(:second_clause, b) do ... end\n"
@@ -392,13 +421,16 @@ format_error({clauses_with_defaults, {Kind, Name, Arity}}) ->
     "\n"
     "    def foo(a, b \\\\ :default)\n"
     "    def foo(:first_clause, b) do ... end\n"
-    "    def foo(:second_clause, b) do ... end\n"
-    "\n"
-   "~ts ~ts/~B has multiple clauses and defines defaults in one or more clauses", [Kind, Name, Arity]);
+    "    def foo(:second_clause, b) do ... end\n",
+    [Kind, Name, Arity]);
 
-format_error({ungrouped_clause, {Kind, Name, Arity, OrigLine, OrigFile}}) ->
-  io_lib:format("clauses for the same ~ts should be grouped together, ~ts ~ts/~B was previously defined (~ts:~B)",
-    [Kind, Kind, Name, Arity, OrigFile, OrigLine]);
+format_error({ungrouped_name, {Kind, Name, Arity, OrigLine, OrigFile}}) ->
+   io_lib:format("clauses with the same name should be grouped together, \"~ts ~ts/~B\" was previously defined (~ts:~B)",
+     [Kind, Name, Arity, OrigFile, OrigLine]);
+
+format_error({ungrouped_arity, {Kind, Name, Arity, OrigLine, OrigFile}}) ->
+  io_lib:format("clauses with the same name and arity (number of arguments) should be grouped together, \"~ts ~ts/~B\" was previously defined (~ts:~B)",
+    [Kind, Name, Arity, OrigFile, OrigLine]);
 
 format_error({changed_kind, {Name, Arity, Previous, Current}}) ->
   io_lib:format("~ts ~ts/~B already defined as ~ts", [Current, Name, Arity, Previous]);

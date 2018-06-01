@@ -150,6 +150,7 @@ defmodule ExUnit.DocTest do
   defmodule Error do
     defexception [:message]
 
+    @impl true
     def exception(opts) do
       module = Keyword.fetch!(opts, :module)
       message = Keyword.fetch!(opts, :message)
@@ -295,7 +296,7 @@ defmodule ExUnit.DocTest do
         # Put all tests into one context
         (unquote_splicing(tests))
       rescue
-        e in [ExUnit.AssertionError] ->
+        e in ExUnit.AssertionError ->
           reraise e, stack
 
         error ->
@@ -304,7 +305,7 @@ defmodule ExUnit.DocTest do
               inspect(Exception.message(error))
 
           error = [message: message, expr: unquote(String.trim(whole_expr))]
-          reraise ExUnit.AssertionError, error, System.stacktrace()
+          reraise ExUnit.AssertionError, error, __STACKTRACE__
       end
     end
   end
@@ -322,7 +323,7 @@ defmodule ExUnit.DocTest do
 
         actual ->
           expr = "#{unquote(String.trim(expr))} === #{unquote(String.trim(expected))}"
-          error = [message: "Doctest failed", expr: expr, left: actual]
+          error = [message: "Doctest failed", expr: expr, left: actual, right: expected]
           reraise ExUnit.AssertionError, error, unquote(stack)
       end
     end
@@ -345,7 +346,7 @@ defmodule ExUnit.DocTest do
 
         actual ->
           expr = "inspect(#{unquote(String.trim(expr))}) === #{unquote(String.trim(expected))}"
-          error = [message: "Doctest failed", expr: expr, left: actual]
+          error = [message: "Doctest failed", expr: expr, left: actual, right: expected]
           reraise ExUnit.AssertionError, error, unquote(stack)
       end
     end
@@ -554,7 +555,7 @@ defmodule ExUnit.DocTest do
     length = byte_size(line) - indent
 
     if length > 0 do
-      :binary.part(line, indent, length)
+      binary_part(line, indent, length)
     else
       ""
     end
