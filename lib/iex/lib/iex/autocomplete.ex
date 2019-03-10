@@ -1,7 +1,26 @@
 defmodule IEx.Autocomplete do
   @moduledoc false
 
-  def expand(expr, server \\ IEx.Server)
+  @doc """
+  Provides one helper function that is injected into connecting
+  remote nodes to properly handle autocompletion.
+  """
+  def remsh(node) do
+    fn e ->
+      case :rpc.call(node, IEx.Autocomplete, :expand, [e]) do
+        {:badrpc, _} -> {:no, '', []}
+        r -> r
+      end
+    end
+  end
+
+  @doc """
+  The expansion logic.
+
+  Some of the expansion has to be use the current shell
+  environemnt, which is found via the broker.
+  """
+  def expand(expr, server \\ IEx.Broker)
 
   def expand('', server) do
     expand_variable_or_import("", server)
@@ -349,7 +368,8 @@ defmodule IEx.Autocomplete do
 
   defp match_modules(hint, root) do
     get_modules(root)
-    |> :lists.usort()
+    |> Enum.sort()
+    |> Enum.dedup()
     |> Enum.drop_while(&(not String.starts_with?(&1, hint)))
     |> Enum.take_while(&String.starts_with?(&1, hint))
   end
@@ -409,7 +429,7 @@ defmodule IEx.Autocomplete do
       not ensure_loaded?(mod) ->
         []
 
-      docs = Code.get_docs(mod, :docs) ->
+      docs = get_docs(mod, [:function, :macro]) ->
         exports(mod)
         |> Kernel.--(default_arg_functions_with_doc_false(docs))
         |> Enum.reject(&hidden_fun?(&1, docs))
@@ -424,8 +444,8 @@ defmodule IEx.Autocomplete do
       not ensure_loaded?(mod) ->
         []
 
-      docs = Code.get_docs(mod, :type_docs) ->
-        Enum.map(docs, &elem(&1, 0))
+      docs = get_docs(mod, [:type]) ->
+        Enum.map(docs, &extract_name_and_arity/1)
 
       true ->
         exports(mod)
@@ -437,43 +457,42 @@ defmodule IEx.Autocomplete do
       not ensure_loaded?(mod) ->
         []
 
-      docs = Code.get_docs(mod, :callback_docs) ->
-        Enum.map(docs, &elem(&1, 0))
+      docs = get_docs(mod, [:callback, :macrocallback]) ->
+        Enum.map(docs, &extract_name_and_arity/1)
 
       true ->
         exports(mod)
     end
   end
 
+  defp get_docs(mod, kinds) do
+    case Code.fetch_docs(mod) do
+      {:docs_v1, _, _, _, _, _, docs} ->
+        for {{kind, _, _}, _, _, _, _} = doc <- docs, kind in kinds, do: doc
+
+      {:error, _} ->
+        nil
+    end
+  end
+
+  defp extract_name_and_arity({{_, name, arity}, _, _, _, _}), do: {name, arity}
+
   defp default_arg_functions_with_doc_false(docs) do
-    for {{fun_name, arity}, _, _, args, false} <- docs,
-        count = count_defaults(args),
-        count > 0,
+    for {{_, fun_name, arity}, _, _, :hidden, %{defaults: count}} <- docs,
         new_arity <- (arity - count)..arity,
         do: {fun_name, new_arity}
   end
 
-  defp count_defaults(args) do
-    Enum.count(args, &match?({:\\, _, _}, &1))
-  end
-
-  defp hidden_fun?(fun, docs) do
-    case List.keyfind(docs, fun, 0) do
-      nil ->
-        underscored_fun?(fun)
-
-      {_, _, _, _, false} ->
-        true
-
-      {fun, _, _, _, nil} ->
-        underscored_fun?(fun)
-
-      {_, _, _, _, _} ->
-        false
+  defp hidden_fun?({name, arity}, docs) do
+    case Enum.find(docs, &match?({{_, ^name, ^arity}, _, _, _, _}, &1)) do
+      nil -> underscored_fun?(name)
+      {_, _, _, :hidden, _} -> true
+      {_, _, _, :none, _} -> underscored_fun?(name)
+      {_, _, _, _, _} -> false
     end
   end
 
-  defp underscored_fun?({name, _}), do: hd(Atom.to_charlist(name)) == ?_
+  defp underscored_fun?(name), do: hd(Atom.to_charlist(name)) == ?_
 
   defp ensure_loaded?(Elixir), do: false
   defp ensure_loaded?(mod), do: Code.ensure_loaded?(mod)

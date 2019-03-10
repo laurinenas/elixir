@@ -71,6 +71,14 @@ defmodule Mix.Tasks.NewTest do
     end)
   end
 
+  test "new with --module uses the module name also for naming the files in lib and test" do
+    in_tmp("new_with_module", fn ->
+      Mix.Tasks.New.run(["hello_world", "--module", "MyTestModule"])
+      assert_file("hello_world/lib/my_test_module.ex", ~r/defmodule MyTestModule do/)
+      assert_file("hello_world/test/my_test_module_test.exs", ~r/defmodule MyTestModuleTest do/)
+    end)
+  end
+
   test "new with --app" do
     in_tmp("new app", fn ->
       Mix.Tasks.New.run(["HELLO_WORLD", "--app", "hello_world"])
@@ -145,17 +153,27 @@ defmodule Mix.Tasks.NewTest do
 
   test "new with invalid args" do
     in_tmp("new with an invalid application name", fn ->
-      assert_raise Mix.Error, ~r"Application name must start with a letter and ", fn ->
-        Mix.Tasks.New.run(["007invalid"])
-      end
+      assert_raise Mix.Error,
+                   ~r"Application name must start with a lowercase ASCII letter",
+                   fn ->
+                     Mix.Tasks.New.run(["007invalid"])
+                   end
 
-      assert_raise Mix.Error, ~r"only lowercase letters, numbers and underscore", fn ->
-        Mix.Tasks.New.run(["invAlid"])
-      end
+      assert_raise Mix.Error,
+                   ~r"followed by lowercase ASCII letters, numbers, or underscores",
+                   fn ->
+                     Mix.Tasks.New.run(["invAlid"])
+                   end
+
+      assert_raise Mix.Error,
+                   ~r"followed by lowercase ASCII letters, numbers, or underscores",
+                   fn ->
+                     Mix.Tasks.New.run(["inválido"])
+                   end
     end)
 
     in_tmp("new with an invalid application name from the app option", fn ->
-      assert_raise Mix.Error, ~r"Application name must start with a letter and ", fn ->
+      assert_raise Mix.Error, ~r"Application name must start with a lowercase ASCII letter", fn ->
         Mix.Tasks.New.run(["valid", "--app", "007invalid"])
       end
     end)

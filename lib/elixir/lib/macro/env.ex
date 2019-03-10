@@ -28,7 +28,7 @@ defmodule Macro.Env do
       element is the function name and the second its arity; returns
       `nil` if not inside a function
     * `context` - the context of the environment; it can be `nil`
-      (default context), inside a guard or inside a match
+      (default context), `:guard` (inside a guard) or `:match` (inside a match)
     * `aliases` -  a list of two-element tuples, where the first
       element is the aliased name and the second one the actual name
     * `requires` - the list of required modules
@@ -45,6 +45,7 @@ defmodule Macro.Env do
     * `current_vars`
     * `unused_vars`
     * `prematch_vars`
+    * `contextual_vars`
 
   The following fields are deprecated and must not be accessed or relied on:
 
@@ -56,20 +57,20 @@ defmodule Macro.Env do
   @type file :: binary
   @type line :: non_neg_integer
   @type aliases :: [{module, module}]
-  @type macro_aliases :: [{module, {integer, module}}]
+  @type macro_aliases :: [{module, {term, module}}]
   @type context :: :match | :guard | nil
   @type requires :: [module]
   @type functions :: [{module, [name_arity]}]
   @type macros :: [{module, [name_arity]}]
   @type context_modules :: [module]
   @type lexical_tracker :: pid | nil
-  @type var :: {atom, atom | non_neg_integer}
+  @type variable :: {atom, atom | term}
 
-  @typep vars :: [var]
+  @typep vars :: [variable]
   @typep var_type :: :term
   @typep var_version :: non_neg_integer
-  @typep unused_vars :: %{{var, var_version} => non_neg_integer | false}
-  @typep current_vars :: %{var => {var_version, var_type}}
+  @typep unused_vars :: %{optional({variable, var_version}) => non_neg_integer | false}
+  @typep current_vars :: %{optional(variable) => {var_version, var_type}}
   @typep prematch_vars :: current_vars | :warn | :raise | :pin | :apply
   @typep contextual_vars :: [atom]
 
@@ -130,8 +131,8 @@ defmodule Macro.Env do
   and the second element is its context, which may be an
   atom or an integer.
   """
-  @spec vars(t) :: [var]
-  @since "1.7.0"
+  @doc since: "1.7.0"
+  @spec vars(t) :: [variable]
   def vars(env)
 
   def vars(%{__struct__: Macro.Env, current_vars: current_vars}) do
@@ -141,8 +142,8 @@ defmodule Macro.Env do
   @doc """
   Checks if a variable belongs to the environment.
   """
-  @spec has_var?(t, var) :: boolean()
-  @since "1.7.0"
+  @doc since: "1.7.0"
+  @spec has_var?(t, variable) :: boolean()
   def has_var?(env, var)
 
   def has_var?(%{__struct__: Macro.Env, current_vars: current_vars}, var) do

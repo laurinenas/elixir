@@ -4,7 +4,7 @@ defmodule Logger.ErlangHandler do
   @doc """
   Hook required by `:logger`.
   """
-  def log(%{meta: %{domain: [:beam, :erlang, :otp, :sasl | _]}}, %{sasl_reports?: false}) do
+  def log(%{meta: %{domain: [:otp, :sasl | _]}}, %{sasl_reports?: false}) do
     :ok
   end
 
@@ -92,7 +92,7 @@ defmodule Logger.ErlangHandler do
       level: min_level,
       truncate: truncate,
       translators: translators
-    } = Logger.Config.__data__()
+    } = Logger.Config.translation_data()
 
     case translate(translators, min_level, level, kind, data, meta) do
       :none -> {translate_fallback(kind, data, erl_meta, truncate), meta}

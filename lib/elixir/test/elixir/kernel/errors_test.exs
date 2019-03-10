@@ -31,7 +31,7 @@ defmodule Kernel.ErrorsTest do
 
   test "invalid token" do
     assert_eval_raise SyntaxError,
-                      "nofile:1: unexpected token: \"\u200B\" (column 7, codepoint U+200B)",
+                      "nofile:1: unexpected token: \"\u200B\" (column 7, code point U+200B)",
                       '[foo: \u200B]\noops'
   end
 
@@ -57,20 +57,30 @@ defmodule Kernel.ErrorsTest do
   end
 
   test "invalid quoted token" do
-    assert_eval_raise SyntaxError, "nofile:1: syntax error before: \"world\"", '"hello" "world"'
+    assert_eval_raise SyntaxError,
+                      "nofile:1: syntax error before: \"world\"",
+                      '"hello" "world"'
 
-    assert_eval_raise SyntaxError, "nofile:1: syntax error before: 'Foobar'", '1 Foobar'
+    assert_eval_raise SyntaxError,
+                      "nofile:1: syntax error before: 'Foobar'",
+                      '1 Foobar'
 
-    assert_eval_raise SyntaxError, "nofile:1: syntax error before: foo", 'Foo.:foo'
+    assert_eval_raise SyntaxError,
+                      "nofile:1: syntax error before: foo",
+                      'Foo.:foo'
 
-    assert_eval_raise SyntaxError, "nofile:1: syntax error before: \"foo\"", 'Foo.:"foo\#{:bar}"'
+    assert_eval_raise SyntaxError,
+                      "nofile:1: syntax error before: \"foo\"",
+                      'Foo.:"foo\#{:bar}"'
 
-    assert_eval_raise SyntaxError, "nofile:1: syntax error before: \"", 'Foo.:"\#{:bar}"'
+    assert_eval_raise SyntaxError,
+                      "nofile:1: syntax error before: \"",
+                      'Foo.:"\#{:bar}"'
   end
 
   test "invalid identifier" do
     message = fn name ->
-      "nofile:1: invalid character \"@\" (codepoint U+0040) in identifier: #{name}"
+      "nofile:1: invalid character \"@\" (code point U+0040) in identifier: #{name}"
     end
 
     assert_eval_raise SyntaxError, message.("foo@"), 'foo@'
@@ -78,40 +88,37 @@ defmodule Kernel.ErrorsTest do
     assert_eval_raise SyntaxError, message.("foo@bar"), 'foo@bar'
 
     message = fn name ->
-      "nofile:1: invalid character \"@\" (codepoint U+0040) in alias: #{name}"
+      "nofile:1: invalid character \"@\" (code point U+0040) in alias: #{name}"
     end
 
     assert_eval_raise SyntaxError, message.("Foo@"), 'Foo@'
     assert_eval_raise SyntaxError, message.("Foo@bar"), 'Foo@bar'
 
-    message = "nofile:1: invalid character \"!\" (codepoint U+0021) in alias: Foo!"
+    message = "nofile:1: invalid character \"!\" (code point U+0021) in alias: Foo!"
     assert_eval_raise SyntaxError, message, 'Foo!'
 
-    message = "nofile:1: invalid character \"?\" (codepoint U+003F) in alias: Foo?"
+    message = "nofile:1: invalid character \"?\" (code point U+003F) in alias: Foo?"
     assert_eval_raise SyntaxError, message, 'Foo?'
 
-    # TODO: Remove this check once we depend on OTP 20+
-    if :erlang.system_info(:otp_release) >= '20' do
-      message =
-        "nofile:1: invalid character \"ó\" (codepoint U+00F3) in alias (only ascii characters are allowed): Foó"
+    message =
+      "nofile:1: invalid character \"ó\" (code point U+00F3) in alias (only ASCII characters are allowed): Foó"
 
-      assert_eval_raise SyntaxError, message, 'Foó'
+    assert_eval_raise SyntaxError, message, 'Foó'
 
-      message = ~r"""
-      Elixir expects unquoted Unicode atoms and variables to be in NFC form.
+    message = ~r"""
+    Elixir expects unquoted Unicode atoms, variables, and calls to be in NFC form.
 
-      Got:
+    Got:
 
-          "foó" \(codepoints 0066 006F 006F 0301\)
+        "foó" \(code points 0x0066 0x006F 0x006F 0x0301\)
 
-      Expected:
+    Expected:
 
-          "foó" \(codepoints 0066 006F 00F3\)
+        "foó" \(code points 0x0066 0x006F 0x00F3\)
 
-      """
+    """
 
-      assert_eval_raise SyntaxError, message, :unicode.characters_to_nfd_list("foó")
-    end
+    assert_eval_raise SyntaxError, message, :unicode.characters_to_nfd_list("foó")
   end
 
   test "kw missing space" do
@@ -168,6 +175,71 @@ defmodule Kernel.ErrorsTest do
 
   test "unexpected end" do
     assert_eval_raise SyntaxError, "nofile:1: unexpected token: end", '1 end'
+
+    assert_eval_raise SyntaxError,
+                      ~r" HINT: it looks like the \"end\" on line 2 does not have a matching \"do\" defined before it",
+                      '''
+                      defmodule MyApp do
+                        def one end
+                        def two do end
+                      end
+                      '''
+
+    assert_eval_raise SyntaxError,
+                      ~r" HINT: it looks like the \"end\" on line 3 does not have a matching \"do\" defined before it",
+                      '''
+                      defmodule MyApp do
+                        def one
+                        end
+
+                        def two do
+                        end
+                      end
+                      '''
+
+    assert_eval_raise SyntaxError,
+                      ~r" HINT: it looks like the \"end\" on line 6 does not have a matching \"do\" defined before it",
+                      '''
+                      defmodule MyApp do
+                        def one do
+                        end
+
+                        def two
+                        end
+                      end
+                      '''
+  end
+
+  test "missing end" do
+    assert_eval_raise TokenMissingError,
+                      "nofile:1: missing terminator: end (for \"do\" starting at line 1)",
+                      'foo do 1'
+
+    assert_eval_raise TokenMissingError,
+                      ~r"HINT: it looks like the \"do\" on line 2 does not have a matching \"end\"",
+                      '''
+                      defmodule MyApp do
+                        def one do
+                        # end
+
+                        def two do
+                        end
+                      end
+                      '''
+
+    assert_eval_raise SyntaxError,
+                      ~r"HINT: it looks like the \"do\" on line 3 does not have a matching \"end\"",
+                      '''
+                      defmodule MyApp do
+                        (
+                          def one do
+                          # end
+
+                          def two do
+                          end
+                        )
+                      end
+                      '''
   end
 
   test "syntax error" do
@@ -190,9 +262,9 @@ defmodule Kernel.ErrorsTest do
   end
 
   test "syntax error with do" do
-    assert_eval_raise SyntaxError, ~r/nofile:1: unexpected token "do"./, 'if true, do\n'
+    assert_eval_raise SyntaxError, ~r/nofile:1: unexpected token: do./, 'if true, do\n'
 
-    assert_eval_raise SyntaxError, ~r/nofile:1: unexpected keyword "do:"./, 'if true do:\n'
+    assert_eval_raise SyntaxError, ~r/nofile:1: unexpected keyword: do:./, 'if true do:\n'
   end
 
   test "syntax error on parens call" do
@@ -237,7 +309,7 @@ defmodule Kernel.ErrorsTest do
         "part of the atom's name, the atom name must be quoted. Syntax error before: '.'"
 
     assert_eval_raise SyntaxError, msg, ':foo.Bar'
-    assert_eval_raise SyntaxError, msg, ':"foo".Bar'
+    assert_eval_raise SyntaxError, msg, ':"+".Bar'
   end
 
   test "syntax error with no token" do
@@ -285,9 +357,13 @@ defmodule Kernel.ErrorsTest do
                       end
                       '''
 
-    assert_eval_raise CompileError, ~r"nofile:2: undefined function foo/0", ~C'''
+    assert_eval_raise CompileError, ~r"nofile:4: undefined function foo/0", ~C'''
     defmodule Kernel.ErrorsTest.ClauseWithDefaults5 do
-      def hello(foo, bar \\ foo())
+      def hello(
+            foo,
+            bar \\ foo()
+          )
+
       def hello(foo, bar), do: foo + bar
     end
     '''
@@ -312,21 +388,36 @@ defmodule Kernel.ErrorsTest do
   end
 
   test "bad form" do
-    assert_eval_raise CompileError, "nofile:2: undefined function bar/0", '''
+    assert_eval_raise CompileError, "nofile:3: undefined function bar/0", '''
     defmodule Kernel.ErrorsTest.BadForm do
-      def foo, do: bar()
+      def foo do
+        bar()
+      end
+    end
+    '''
+
+    assert_eval_raise CompileError, "nofile:8: undefined function baz/0", '''
+    defmodule Sample do
+      def foo do
+        bar()
+      end
+
+      defoverridable [foo: 0]
+      def foo do
+        baz()
+      end
     end
     '''
   end
 
   test "literal on map and struct" do
+    assert_eval_raise SyntaxError, "nofile:1: syntax error before: '}'", '%{:a}'
     assert_eval_raise SyntaxError, "nofile:1: syntax error before: '}'", '%{{:a, :b}}'
-
-    assert_eval_raise SyntaxError, "nofile:1: syntax error before: '{'", '%{:a, :b}{a: :b}'
+    assert_eval_raise SyntaxError, "nofile:1: syntax error before: '{'", '%{a, b}{a: :b}'
 
     assert_eval_raise CompileError,
                       "nofile:1: expected key-value pairs in a map, got: put_in(foo.bar().baz(), nil)",
-                      'foo = 1; %{put_in(foo.bar.baz, nil), :bar}'
+                      'foo = 1; %{put_in(foo.bar.baz, nil), foo}'
   end
 
   test "struct fields on defstruct" do
@@ -359,22 +450,96 @@ defmodule Kernel.ErrorsTest do
                       "nofile:1: BadStruct.__struct__/0 is undefined, cannot expand struct BadStruct",
                       '%BadStruct{} = %{}'
 
-    defmodule BadStruct do
-      def __struct__ do
-        []
+    bad_struct_type_error =
+      ~r"expected Kernel.ErrorsTest.BadStructType.__struct__/(0|1) to return a map.*, got: :invalid"
+
+    defmodule BadStructType do
+      def __struct__, do: :invalid
+      def __struct__(_), do: :invalid
+
+      assert_raise CompileError, bad_struct_type_error, fn ->
+        Macro.struct!(__MODULE__, __ENV__)
       end
     end
 
     assert_eval_raise CompileError,
-                      "nofile:1: expected Kernel.ErrorsTest.BadStruct.__struct__/0 to return a map, got: []",
-                      '%#{BadStruct}{} = %{}'
+                      bad_struct_type_error,
+                      '%#{BadStructType}{} = %{}'
+
+    assert_eval_raise CompileError,
+                      bad_struct_type_error,
+                      '%#{BadStructType}{}'
+
+    assert_raise ArgumentError, bad_struct_type_error, fn ->
+      struct(BadStructType)
+    end
+
+    assert_raise ArgumentError, bad_struct_type_error, fn ->
+      struct(BadStructType, foo: 1)
+    end
+
+    missing_struct_key_error =
+      ~r"expected Kernel.ErrorsTest.MissingStructKey.__struct__/(0|1) to return a map.*, got: %\{\}"
+
+    defmodule MissingStructKey do
+      def __struct__, do: %{}
+      def __struct__(_), do: %{}
+
+      assert_raise CompileError, missing_struct_key_error, fn ->
+        Macro.struct!(__MODULE__, __ENV__)
+      end
+    end
+
+    assert_eval_raise CompileError,
+                      missing_struct_key_error,
+                      '%#{MissingStructKey}{} = %{}'
+
+    assert_eval_raise CompileError,
+                      missing_struct_key_error,
+                      '%#{MissingStructKey}{}'
+
+    assert_raise ArgumentError, missing_struct_key_error, fn ->
+      struct(MissingStructKey)
+    end
+
+    assert_raise ArgumentError, missing_struct_key_error, fn ->
+      struct(MissingStructKey, foo: 1)
+    end
+
+    invalid_struct_key_error =
+      ~r"expected Kernel.ErrorsTest.InvalidStructKey.__struct__/(0|1) to return a map.*, got: %\{__struct__: 1\}"
+
+    defmodule InvalidStructKey do
+      def __struct__, do: %{__struct__: 1}
+      def __struct__(_), do: %{__struct__: 1}
+
+      assert_raise CompileError, invalid_struct_key_error, fn ->
+        Macro.struct!(__MODULE__, __ENV__)
+      end
+    end
+
+    assert_eval_raise CompileError,
+                      invalid_struct_key_error,
+                      '%#{InvalidStructKey}{} = %{}'
+
+    assert_eval_raise CompileError,
+                      invalid_struct_key_error,
+                      '%#{InvalidStructKey}{}'
+
+    assert_raise ArgumentError, invalid_struct_key_error, fn ->
+      struct(InvalidStructKey)
+    end
+
+    assert_raise ArgumentError, invalid_struct_key_error, fn ->
+      struct(InvalidStructKey, foo: 1)
+    end
 
     defmodule GoodStruct do
       defstruct name: "john"
     end
 
     assert_eval_raise KeyError,
-                      "key :age not found in: %Kernel.ErrorsTest.GoodStruct{name: \"john\"}",
+                      "key :age not found",
                       '%#{GoodStruct}{age: 27}'
 
     assert_eval_raise CompileError,
@@ -428,11 +593,27 @@ defmodule Kernel.ErrorsTest do
     end
   end
 
+  test "typespec attributes set via Module.put_attribute/4" do
+    message =
+      "attributes type, typep, opaque, spec, callback, and macrocallback " <>
+        "must be set directly via the @ notation"
+
+    for kind <- [:type, :typep, :opaque, :spec, :callback, :macrocallback] do
+      assert_eval_raise ArgumentError,
+                        message,
+                        """
+                        defmodule PutTypespecAttribute do
+                          Module.put_attribute(__MODULE__, #{inspect(kind)}, {})
+                        end
+                        """
+    end
+  end
+
   test "invalid struct field value" do
     msg = ~r"invalid value for struct field baz, cannot escape "
 
     assert_raise ArgumentError, msg, fn ->
-      defmodule InvaliadStructFieldValue do
+      defmodule InvalidStructFieldValue do
         defstruct baz: fn -> nil end
       end
     end
@@ -487,7 +668,7 @@ defmodule Kernel.ErrorsTest do
   test "macro with undefined local" do
     assert_eval_raise UndefinedFunctionError,
                       "function Kernel.ErrorsTest.MacroWithUndefinedLocal.unknown/1" <>
-                        " is undefined (function unknown/1 is not available)",
+                        " is undefined (function not available)",
                       '''
                       defmodule Kernel.ErrorsTest.MacroWithUndefinedLocal do
                         defmacrop bar, do: unknown(1)
@@ -498,12 +679,47 @@ defmodule Kernel.ErrorsTest do
 
   test "private macro" do
     assert_eval_raise UndefinedFunctionError,
-                      "function Kernel.ErrorsTest.PrivateMacro.foo/0 is undefined (function foo/0 is not available)",
+                      "function Kernel.ErrorsTest.PrivateMacro.foo/0 is undefined (function not available)",
                       '''
                       defmodule Kernel.ErrorsTest.PrivateMacro do
                         defmacrop foo, do: 1
                         defmacro bar, do: __MODULE__.foo
                         defmacro baz, do: bar()
+                      end
+                      '''
+  end
+
+  test "macro invoked before its definition" do
+    assert_eval_raise CompileError,
+                      "nofile:2: cannot invoke macro bar/0 before its definition",
+                      '''
+                      defmodule Kernel.ErrorsTest.IncorrectMacroDispatch do
+                        def foo, do: bar()
+                        defmacro bar, do: :bar
+                      end
+                      '''
+
+    assert_eval_raise CompileError,
+                      "nofile:2: cannot invoke macro bar/0 before its definition",
+                      '''
+                      defmodule Kernel.ErrorsTest.IncorrectMacropDispatch do
+                        def foo, do: bar()
+                        defmacrop bar, do: :ok
+                      end
+                      '''
+  end
+
+  test "macro captured before its definition" do
+    assert_eval_raise CompileError,
+                      "nofile:3: cannot invoke macro is_ok/1 before its definition",
+                      '''
+                      defmodule Kernel.ErrorsTest.IncorrectMacroDispatch.Capture do
+                        def foo do
+                          predicate = &is_ok/1
+                          Enum.any?([:ok, :error, :foo], predicate)
+                        end
+
+                        defmacro is_ok(atom), do: atom == :ok
                       end
                       '''
   end
@@ -527,6 +743,24 @@ defmodule Kernel.ErrorsTest do
                       defmodule Kernel.ErrorsTest.FunctionImportConflict do
                         import :erlang, warn: false
                         def foo, do: exit(:test)
+                      end
+                      '''
+  end
+
+  test "duplicated function on import options" do
+    assert_eval_raise CompileError,
+                      "nofile:2: invalid :only option for import, flatten/1 is duplicated",
+                      '''
+                      defmodule Kernel.ErrorsTest.DuplicatedFunctionOnImportOnly do
+                        import List, only: [flatten: 1, keyfind: 4, flatten: 1]
+                      end
+                      '''
+
+    assert_eval_raise CompileError,
+                      "nofile:2: invalid :except option for import, flatten/1 is duplicated",
+                      '''
+                      defmodule Kernel.ErrorsTest.DuplicatedFunctionOnImportExcept do
+                        import List, except: [flatten: 1, keyfind: 4, flatten: 1]
                       end
                       '''
   end
@@ -581,7 +815,7 @@ defmodule Kernel.ErrorsTest do
 
   test "invalid macro" do
     assert_eval_raise CompileError,
-                      "nofile: invalid quoted expression: {:foo, :bar, :baz, :bat}",
+                      ~r"nofile: invalid quoted expression: {:foo, :bar, :baz, :bat}",
                       '''
                       defmodule Kernel.ErrorsTest.InvalidMacro do
                         defmacrop oops do
@@ -625,8 +859,7 @@ defmodule Kernel.ErrorsTest do
 
   test "already compiled module" do
     assert_eval_raise ArgumentError,
-                      "could not call eval_quoted with argument Record " <>
-                        "because the module is already compiled",
+                      "could not call Module.eval_quoted/4 because the module Record is already compiled",
                       'Module.eval_quoted Record, quote(do: 1), [], file: __ENV__.file'
   end
 
@@ -638,9 +871,45 @@ defmodule Kernel.ErrorsTest do
     end
   end
 
+  test "duplicated @on_load attribute" do
+    assert_raise ArgumentError, "the @on_load attribute can only be set once per module", fn ->
+      defmodule DuplicatedOnLoadAttribute do
+        @on_load :foo
+        @on_load :bar
+      end
+    end
+  end
+
+  test "@on_load attribute with undefined function" do
+    assert_eval_raise CompileError,
+                      "nofile:1: @on_load function foo/0 is undefined",
+                      'defmodule UndefinedOnLoadFunction do @on_load :foo end'
+  end
+
+  test "wrong kind for @on_load attribute" do
+    assert_eval_raise CompileError,
+                      "nofile:1: expected @on_load function foo/0 to be defined as \"def\", " <>
+                        "got \"defp\"",
+                      '''
+                      defmodule PrivateOnLoadFunction do
+                        @on_load :foo
+
+
+                        defp foo do
+                          :ok
+                        end
+
+                        # To avoid warning: function foo/0 is unused
+                        def bar do
+                          foo()
+                        end
+                      end
+                      '''
+  end
+
   test "interpolation error" do
     assert_eval_raise SyntaxError,
-                      "nofile:1: \"do\" is missing terminator \"end\". unexpected token: \")\" at line 1",
+                      "nofile:1: unexpected token: ). The \"do\" at line 1 is missing terminator \"end\"",
                       '"foo\#{case 1 do )}bar"'
   end
 
@@ -715,8 +984,7 @@ defmodule Kernel.ErrorsTest do
 
   test "invalid \"fn do expr end\"" do
     assert_eval_raise SyntaxError,
-                      "nofile:1: unexpected token \"do\". Anonymous functions are written as:\n\n" <>
-                        "    fn pattern -> expression end\n\n" <> "Syntax error before: do",
+                      "nofile:1: unexpected token: do. Anonymous functions are written as:\n\n    fn pattern -> expression end",
                       'fn do :ok end'
   end
 
@@ -734,9 +1002,9 @@ defmodule Kernel.ErrorsTest do
     '''
   end
 
-  test "invalid args for bodyless clause" do
+  test "invalid args for function head" do
     assert_eval_raise CompileError,
-                      ~r"nofile:2: only variables and \\\\ are allowed as arguments in definition header.",
+                      ~r"nofile:2: only variables and \\\\ are allowed as arguments in function head.",
                       '''
                       defmodule Kernel.ErrorsTest.InvalidArgsForBodylessClause do
                         def foo(nil)
@@ -816,11 +1084,11 @@ defmodule Kernel.ErrorsTest do
   end
 
   test "def fails when rescue, else or catch don't have clauses" do
-    assert_eval_raise CompileError, ~r"expected -> clauses for :else in \"def\"", """
+    assert_eval_raise CompileError, ~r"expected -> clauses for :rescue in \"def\"", """
     defmodule Example do
       def foo do
         bar()
-      else
+      rescue
         baz()
       end
     end

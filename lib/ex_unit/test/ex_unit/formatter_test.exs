@@ -34,8 +34,8 @@ defmodule ExUnit.FormatterTest do
 
   test "formats test case filters" do
     filters = [run: true, slow: false]
-    assert format_filters(filters, :include) =~ "Including tags: [run: true, slow: false]"
     assert format_filters(filters, :exclude) =~ "Excluding tags: [run: true, slow: false]"
+    assert format_filters(filters, :include) =~ "Including tags: [run: true, slow: false]"
   end
 
   test "formats test errors" do
@@ -147,49 +147,46 @@ defmodule ExUnit.FormatterTest do
            """
   end
 
-  # TODO: Remove this check once we depend only on 20
-  if :erlang.system_info(:otp_release) >= '20' do
-    defp trim_multiline_whitespace(string) do
-      String.replace(string, ~r"\n\s+\n", "\n\n")
-    end
-
-    test "blames function clause error" do
-      {error, stack} =
-        try do
-          Access.fetch(:foo, :bar)
-        rescue
-          exception -> {exception, __STACKTRACE__}
-        end
-
-      failure = format_test_failure(test(), [{:error, error, [hd(stack)]}], 1, 80, &formatter/2)
-
-      assert trim_multiline_whitespace(failure) =~ """
-               1) world (Hello)
-                  test/ex_unit/formatter_test.exs:1
-                  ** (FunctionClauseError) no function clause matching in Access.fetch/2
-
-                  The following arguments were given to Access.fetch/2:
-
-                      # 1
-                      :foo
-
-                      # 2
-                      :bar
-
-                  Attempted function clauses (showing 5 out of 5):
-
-                      def fetch(%module{} = container, key)
-             """
-
-      assert failure =~ ~r"\(elixir\) lib/access\.ex:\d+: Access\.fetch/2"
-    end
+  defp trim_multiline_whitespace(string) do
+    String.replace(string, ~r"\n\s+\n", "\n\n")
   end
 
-  test "formats setup all errors" do
+  test "blames function clause error" do
+    {error, stack} =
+      try do
+        Access.fetch(:foo, :bar)
+      rescue
+        exception -> {exception, __STACKTRACE__}
+      end
+
+    failure = format_test_failure(test(), [{:error, error, [hd(stack)]}], 1, 80, &formatter/2)
+
+    assert trim_multiline_whitespace(failure) =~ """
+             1) world (Hello)
+                test/ex_unit/formatter_test.exs:1
+                ** (FunctionClauseError) no function clause matching in Access.fetch/2
+
+                The following arguments were given to Access.fetch/2:
+
+                    # 1
+                    :foo
+
+                    # 2
+                    :bar
+
+                Attempted function clauses (showing 5 out of 5):
+
+                    def fetch(%module{} = container, key)
+           """
+
+    assert failure =~ ~r"\(elixir\) lib/access\.ex:\d+: Access\.fetch/2"
+  end
+
+  test "formats setup_all errors" do
     failure = [{:error, catch_error(raise "oops"), []}]
 
     assert format_test_all_failure(test_module(), failure, 1, 80, &formatter/2) =~ """
-             1) Hello: failure on setup_all callback, test invalidated
+             1) Hello: failure on setup_all callback, all tests have been invalidated
                 ** (RuntimeError) oops
            """
   end
@@ -198,7 +195,7 @@ defmodule ExUnit.FormatterTest do
     failure = [{:error, catch_assertion(assert [1, 2, 3] == [4, 5, 6]), []}]
 
     assert format_test_all_failure(test_module(), failure, 1, :infinity, &formatter/2) =~ """
-             1) Hello: failure on setup_all callback, test invalidated
+             1) Hello: failure on setup_all callback, all tests have been invalidated
                 Assertion with == failed
                 code:  assert [1, 2, 3] == [4, 5, 6]
                 left:  [1, 2, 3]
@@ -210,7 +207,7 @@ defmodule ExUnit.FormatterTest do
     failure = [{:error, catch_assertion(assert [1, 2, 3] == [4, 5, 6]), []}]
 
     assert format_test_all_failure(test_module(), failure, 1, 15, &formatter/2) =~ """
-             1) Hello: failure on setup_all callback, test invalidated
+             1) Hello: failure on setup_all callback, all tests have been invalidated
                 Assertion with == failed
                 code:  assert [1, 2, 3] == [4, 5, 6]
                 left:  [1,
@@ -222,17 +219,25 @@ defmodule ExUnit.FormatterTest do
            """
   end
 
-  test "formats assertions with function call arguments" do
-    failure = [{:error, catch_assertion(assert is_list({1, 2, 3})), []}]
+  test "formats assertions with complex function call arguments" do
+    failure = [{:error, catch_assertion(assert is_list(List.to_tuple([1, 2, 3]))), []}]
 
     assert format_test_all_failure(test_module(), failure, 1, 80, &formatter/2) =~ """
-             1) Hello: failure on setup_all callback, test invalidated
+             1) Hello: failure on setup_all callback, all tests have been invalidated
                 Expected truthy, got false
-                code: assert is_list({1, 2, 3})
+                code: assert is_list(List.to_tuple([1, 2, 3]))
                 arguments:
 
                     # 1
                     {1, 2, 3}
+           """
+
+    failure = [{:error, catch_assertion(assert is_list({1, 2})), []}]
+
+    assert format_test_all_failure(test_module(), failure, 1, 80, &formatter/2) =~ """
+             1) Hello: failure on setup_all callback, all tests have been invalidated
+                Expected truthy, got false
+                code: assert is_list({1, 2})
            """
   end
 
@@ -241,7 +246,7 @@ defmodule ExUnit.FormatterTest do
     failure = [{:error, catch_assertion(assert(false, message)), []}]
 
     assert format_test_all_failure(test_module(), failure, 1, :infinity, &formatter/2) =~ """
-             1) Hello: failure on setup_all callback, test invalidated
+             1) Hello: failure on setup_all callback, all tests have been invalidated
                 Some meaningful error:
                 useful info
                 another useful info

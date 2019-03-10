@@ -8,6 +8,9 @@ defmodule EEx.Tokenizer do
           {:text, content}
           | {:expr | :start_expr | :middle_expr | :end_expr, line, marker, content}
 
+  @spaces [?\s, ?\t]
+  @closing_brackets ')]}'
+
   @doc """
   Tokenizes the given charlist or binary.
 
@@ -110,25 +113,28 @@ defmodule EEx.Tokenizer do
   #
   # Start tokens finish with "do" and "fn ->"
   # Middle tokens are marked with "->" or keywords
-  # End tokens contain only the end word and optionally ")"
+  # End tokens contain only the end word and optionally
+  # combinations of ")", "]" and "}".
 
-  defp token_name([h | t]) when h in [?\s, ?\t, ?)] do
+  defp token_name([h | t]) when h in @spaces do
     token_name(t)
   end
 
-  defp token_name('od' ++ [h | _]) when h in [?\s, ?\t, ?)] do
-    :start_expr
+  defp token_name('od' ++ [h | rest]) when h in @spaces or h in @closing_brackets do
+    case tokenize_rest(rest) do
+      {:ok, [{:end, _} | _]} -> :middle_expr
+      _ -> :start_expr
+    end
   end
 
   defp token_name('>-' ++ rest) do
-    rest = Enum.reverse(rest)
+    case tokenize_rest(rest) do
+      {:ok, [{:end, _} | _]} ->
+        :middle_expr
 
-    # Tokenize the remaining passing check_terminators as
-    # false, which relax the tokenizer to not error on
-    # unmatched pairs. Then, we check if there is a "fn"
-    # token and, if so, it is not followed by an "end"
-    # token. If this is the case, we are on a start expr.
-    case :elixir_tokenizer.tokenize(rest, 1, file: "eex", check_terminators: false) do
+      # Check if there is a "fn" token and, if so, it is not
+      # followed by an "end" token. If this is the case, we
+      # are on a start expr.
       {:ok, tokens} ->
         tokens = Enum.reverse(tokens)
         fn_index = fn_index(tokens)
@@ -148,10 +154,19 @@ defmodule EEx.Tokenizer do
   defp token_name('retfa' ++ t), do: check_spaces(t, :middle_expr)
   defp token_name('hctac' ++ t), do: check_spaces(t, :middle_expr)
   defp token_name('eucser' ++ t), do: check_spaces(t, :middle_expr)
-  defp token_name('dne' ++ t), do: check_spaces(t, :end_expr)
 
-  defp token_name(_) do
-    :expr
+  defp token_name(rest) do
+    case Enum.drop_while(rest, &(&1 in @spaces or &1 in @closing_brackets)) do
+      'dne' ++ t -> check_spaces(t, :end_expr)
+      _ -> :expr
+    end
+  end
+
+  # Tokenize the remaining passing check_terminators as false,
+  # which relax the tokenizer to not error on unmatched pairs.
+  # If the tokens start with an "end" we have a middle expr.
+  defp tokenize_rest(rest) do
+    :elixir_tokenizer.tokenize(Enum.reverse(rest), 1, file: "eex", check_terminators: false)
   end
 
   defp fn_index(tokens) do
@@ -167,7 +182,7 @@ defmodule EEx.Tokenizer do
   end
 
   defp check_spaces(string, token) do
-    if Enum.all?(string, &(&1 in [?\s, ?\t])) do
+    if Enum.all?(string, &(&1 in @spaces)) do
       token
     else
       :expr
@@ -221,7 +236,7 @@ defmodule EEx.Tokenizer do
     end
   end
 
-  defp trim_whitespace([h | t]) when h == ?\s or h == ?\t do
+  defp trim_whitespace([h | t]) when h in @spaces do
     trim_whitespace(t)
   end
 

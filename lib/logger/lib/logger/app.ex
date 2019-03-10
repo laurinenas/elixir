@@ -17,18 +17,18 @@ defmodule Logger.App do
         [%{id: Logger.ErrorHandler, start: {Logger.Watcher, :start_link, [arg]}}]
       end
 
+    config = Logger.Config.new()
+
     children = [
       %{
         id: :gen_event,
         start: {:gen_event, :start_link, [{:local, Logger}]},
         modules: :dynamic
       },
-      {Logger.Watcher, {Logger, Logger.Config, []}},
-      {Logger.WatcherSupervisor, {Logger.Config, :handlers, []}}
+      {Logger.Watcher, {Logger, Logger.Config, config}},
+      Logger.BackendSupervisor
       | otp_children
     ]
-
-    config = Logger.Config.new()
 
     case Supervisor.start_link(children, strategy: :rest_for_one, name: Logger.Supervisor) do
       {:ok, sup} ->
@@ -93,14 +93,17 @@ defmodule Logger.App do
 
   defp add_elixir_handler(sasl_reports?) do
     config = %{level: :debug, sasl_reports?: sasl_reports?}
-    :logger.set_logger_config(%{level: :debug})
     :logger.add_handler(Logger, Logger.ErlangHandler, config)
   end
 
   defp delete_erlang_handler() do
-    with {:ok, {module, config}} <- :logger.get_handler_config(:default),
+    with {:ok, %{module: module} = config} <- :logger.get_handler_config(:default),
          :ok <- :logger.remove_handler(:default) do
-      [] = Logger.Config.deleted_handlers([{:default, module, config}])
+      %{level: level} = :logger.get_primary_config()
+      :logger.update_primary_config(%{level: :debug})
+      primary_config = {:primary, %{level: level}}
+      handler_config = {:default, module, config}
+      [] = Logger.Config.deleted_handlers([primary_config, handler_config])
       :ok
     else
       _ -> :ok
@@ -120,8 +123,14 @@ defmodule Logger.App do
   defp add_handlers(handlers) do
     for handler <- handlers do
       case handler do
-        {handler, module, config} -> :logger.add_handler(handler, module, config)
-        handler -> :error_logger.add_report_handler(handler)
+        {handler, module, config} ->
+          :logger.add_handler(handler, module, config)
+
+        {:primary, config} ->
+          :logger.update_primary_config(config)
+
+        handler ->
+          :error_logger.add_report_handler(handler)
       end
     end
 

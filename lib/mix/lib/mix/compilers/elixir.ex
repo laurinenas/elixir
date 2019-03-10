@@ -22,7 +22,7 @@ defmodule Mix.Compilers.Elixir do
   Compiles stale Elixir files.
 
   It expects a `manifest` file, the source directories, the destination
-  directory, a flag to know if compilation is being forced or not, and a
+  directory, an option to know if compilation is being forced or not, and a
   list of any additional compiler options.
 
   The `manifest` is written down with information including dependencies
@@ -33,11 +33,12 @@ defmodule Mix.Compilers.Elixir do
     # We fetch the time from before we read files so any future
     # change to files are still picked up by the compiler. This
     # timestamp is used when writing BEAM files and the manifest.
-    timestamp = :calendar.universal_time()
+    timestamp = System.os_time(:second)
     all_paths = MapSet.new(Mix.Utils.extract_files(srcs, exts))
 
     {all_modules, all_sources} = parse_manifest(manifest, dest)
     modified = Mix.Utils.last_modified(manifest)
+    stale_local_deps = stale_local_deps(manifest, modified)
     prev_paths = for source(source: source) <- all_sources, into: MapSet.new(), do: source
 
     removed =
@@ -82,16 +83,17 @@ defmodule Mix.Compilers.Elixir do
               {last_mtime, last_size} = Map.fetch!(sources_stats, source),
               times = Enum.map(external, &(sources_stats |> Map.fetch!(&1) |> elem(0))),
               size != last_size or Mix.Utils.stale?([last_mtime | times], [modified]),
-              into: new_paths,
               do: source
+
+        changed = new_paths ++ changed
 
         {modules, structs, changed} =
           update_stale_entries(
             all_modules,
             all_sources,
             removed ++ changed,
-            stale_local_deps(manifest, modified),
-            %{}
+            stale_local_deps,
+            stale_local_deps
           )
 
         {modules, structs, changed, sources_stats}
@@ -110,7 +112,9 @@ defmodule Mix.Compilers.Elixir do
       stale != [] ->
         compile_manifest(manifest, exts, modules, structs, sources, stale, dest, timestamp, opts)
 
-      removed != [] ->
+      # We need to return ok if stale_local_deps changed
+      # because we want that to propagate to compile.protocols
+      removed != [] or stale_local_deps != %{} ->
         write_manifest(manifest, modules, sources, dest, timestamp)
         {:ok, warning_diagnostics(sources)}
 
@@ -202,6 +206,7 @@ defmodule Mix.Compilers.Elixir do
         warnings = Enum.map(warnings, &diagnostic(&1, :warning)) ++ warning_diagnostics(sources)
         {:error, warnings ++ errors}
     after
+      Code.purge_compiler_modules()
       delete_compiler_info()
     end
   end
@@ -463,7 +468,7 @@ defmodule Mix.Compilers.Elixir do
       file = Path.absname(source)
 
       for {line, message} <- warnings do
-        :elixir_errors.warn(line, file, message)
+        :elixir_errors.erl_warn(line, file, message)
       end
     end
   end

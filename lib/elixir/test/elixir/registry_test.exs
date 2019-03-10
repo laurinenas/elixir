@@ -255,6 +255,12 @@ defmodule RegistryTest do
         # errors
         assert {:error, {:already_started, ^pid}} = Agent.start(fn -> 0 end, name: name)
       end
+
+      test "uses value provided in via", %{registry: registry} do
+        name = {:via, Registry, {registry, "hello", :value}}
+        {:ok, pid} = Agent.start_link(fn -> 0 end, name: name)
+        assert Registry.lookup(registry, "hello") == [{pid, :value}]
+      end
     end
   end
 
@@ -561,7 +567,7 @@ defmodule RegistryTest do
         kill_and_assert_down(task2)
 
         # pid might be in different partition to key so need to sync with all
-        # partitions before checking ets tables are empty.
+        # partitions before checking ETS tables are empty.
         for i <- 0..7 do
           [{_, _, {partition, _}}] = :ets.lookup(registry, i)
           GenServer.call(partition, :sync)
@@ -593,6 +599,18 @@ defmodule RegistryTest do
   test "child_spec/1 uses :name as :id" do
     assert %{id: :custom_name} = Registry.child_spec(name: :custom_name)
     assert %{id: Registry} = Registry.child_spec([])
+  end
+
+  test "raises if :name is missing" do
+    assert_raise ArgumentError, ~r/expected :name option to be present/, fn ->
+      Registry.start_link(keys: :unique)
+    end
+  end
+
+  test "raises if :name is not an atom" do
+    assert_raise ArgumentError, ~r/expected :name to be an atom, got/, fn ->
+      Registry.start_link(keys: :unique, name: [])
+    end
   end
 
   defp register_task(registry, key, value) do

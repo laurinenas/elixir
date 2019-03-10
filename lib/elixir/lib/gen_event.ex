@@ -1,10 +1,8 @@
 defmodule GenEvent do
-  # TODO: Remove by 2.0
-
   # Functions from this module are deprecated in elixir_dispatch.
 
   @moduledoc """
-  WARNING: this module is deprecated.
+  A event manager with event handlers behaviour.
 
   If you are interested in implementing an event manager, please read the
   "Alternatives" section below. If you have to implement an event handler to
@@ -42,6 +40,8 @@ defmodule GenEvent do
   integrate with an existing `:gen_event`-based system, you can still use the
   [`:gen_event`](http://erlang.org/doc/man/gen_event.html) Erlang module.
   """
+
+  @moduledoc deprecated: "Use Erlang/OTP's :gen_event module instead"
 
   @callback init(args :: term) ::
               {:ok, state}
@@ -88,12 +88,10 @@ defmodule GenEvent do
   @deprecated message
   @doc false
   defmacro __using__(_) do
-    %{file: file, line: line} = __CALLER__
-
     deprecation_message =
       "the GenEvent module is deprecated, see its documentation for alternatives"
 
-    :elixir_errors.warn(line, file, deprecation_message)
+    IO.warn(deprecation_message, Macro.Env.stacktrace(__CALLER__))
 
     quote location: :keep do
       @behaviour :gen_event
@@ -182,7 +180,7 @@ defmodule GenEvent do
 
       other ->
         raise ArgumentError, """
-        expected :name option to be one of:
+        expected :name option to be one of the following:
 
           * nil
           * atom

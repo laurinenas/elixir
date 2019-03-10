@@ -20,7 +20,7 @@ defmodule Code.Formatter.GeneralTest do
 
     test "starting with expression" do
       assert_same "__MODULE__.Foo.Bar"
-      # Syntatically valid, semantically invalid
+      # Syntactically valid, semantically invalid
       assert_same "'Foo'.Bar.Baz"
     end
 
@@ -185,6 +185,22 @@ defmodule Code.Formatter.GeneralTest do
       """
 
       assert_same code, @short_length
+    end
+
+    test "with a single clause, followed by a newline, and can fit in one line" do
+      assert_same """
+      fn
+        hello -> world
+      end
+      """
+    end
+
+    test "with a single clause, followed by a newline, and can not fit in one line" do
+      assert_same """
+      SomeModule.long_function_name_that_approaches_max_columns(argument, acc, fn
+        %SomeStruct{key: key}, acc -> more_code(key, acc)
+      end)
+      """
     end
 
     test "with multiple clauses" do

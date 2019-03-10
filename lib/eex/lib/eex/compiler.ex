@@ -9,7 +9,7 @@ defmodule EEx.Compiler do
   and the engine together by handling the tokens and invoking
   the engine every time a full expression or text is received.
   """
-  @spec compile(String.t(), keyword) :: Macro.t() | no_return
+  @spec compile(String.t(), keyword) :: Macro.t()
   def compile(source, opts) when is_binary(source) and is_list(opts) do
     file = opts[:file] || "nofile"
     line = opts[:line] || 1
@@ -78,7 +78,7 @@ defmodule EEx.Compiler do
       "unexpected beginning of EEx tag \"<%#{modifier}\" on \"<%#{modifier}#{chars}%>\", " <>
         "please remove \"#{modifier}\" accordingly"
 
-    :elixir_errors.warn(line, state.file, message)
+    :elixir_errors.erl_warn(line, state.file, message)
     generate_buffer([{:middle_expr, line, '', chars} | t], buffer, scope, state)
     # TODO: Make this an error on Elixir v2.0 since it accidentally worked previously.
     # raise EEx.SyntaxError, message: message, file: state.file, line: line
@@ -103,7 +103,7 @@ defmodule EEx.Compiler do
       "unexpected beginning of EEx tag \"<%#{modifier}\" on end of " <>
         "expression \"<%#{modifier}#{chars}%>\", please remove \"#{modifier}\" accordingly"
 
-    :elixir_errors.warn(line, state.file, message)
+    :elixir_errors.erl_warn(line, state.file, message)
     generate_buffer([{:end_expr, line, '', chars} | t], buffer, scope, state)
     # TODO: Make this an error on Elixir v2.0 since it accidentally worked previously.
     # raise EEx.SyntaxError, message: message, file: state.file, line: line

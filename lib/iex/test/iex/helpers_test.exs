@@ -27,115 +27,113 @@ defmodule IEx.HelpersTest do
     end
   end
 
-  if :erlang.system_info(:otp_release) >= '20' do
-    describe "breakpoints" do
-      setup do
-        on_exit(fn -> IEx.Pry.remove_breaks() end)
+  describe "breakpoints" do
+    setup do
+      on_exit(fn -> IEx.Pry.remove_breaks() end)
+    end
+
+    test "sets up a breakpoint with capture syntax" do
+      assert break!(URI.decode_query() / 2) == 1
+      assert IEx.Pry.breaks() == [{1, URI, {:decode_query, 2}, 1}]
+    end
+
+    test "sets up a breakpoint with call syntax" do
+      assert break!(URI.decode_query(_, %{})) == 1
+      assert IEx.Pry.breaks() == [{1, URI, {:decode_query, 2}, 1}]
+    end
+
+    test "sets up a breakpoint with guards syntax" do
+      assert break!(URI.decode_query(_, map) when is_map(map)) == 1
+      assert IEx.Pry.breaks() == [{1, URI, {:decode_query, 2}, 1}]
+    end
+
+    test "sets up a breakpoint on the given module" do
+      assert break!(URI, :decode_query, 2) == 1
+      assert IEx.Pry.breaks() == [{1, URI, {:decode_query, 2}, 1}]
+    end
+
+    test "resets breaks on the given ID" do
+      assert break!(URI, :decode_query, 2) == 1
+      assert reset_break(1) == :ok
+      assert IEx.Pry.breaks() == [{1, URI, {:decode_query, 2}, 0}]
+    end
+
+    test "resets breaks on the given module" do
+      assert break!(URI, :decode_query, 2) == 1
+      assert reset_break(URI, :decode_query, 2) == :ok
+      assert IEx.Pry.breaks() == [{1, URI, {:decode_query, 2}, 0}]
+    end
+
+    test "removes breaks in the given module" do
+      assert break!(URI.decode_query() / 2) == 1
+      assert remove_breaks(URI) == :ok
+      assert IEx.Pry.breaks() == []
+    end
+
+    test "removes breaks on all modules" do
+      assert break!(URI.decode_query() / 2) == 1
+      assert remove_breaks() == :ok
+      assert IEx.Pry.breaks() == []
+    end
+
+    test "errors when setting up a breakpoint with invalid guard" do
+      assert_raise CompileError, ~r"cannot find or invoke local is_whatever/1", fn ->
+        break!(URI.decode_query(_, map) when is_whatever(map))
       end
+    end
 
-      test "sets up a breakpoint with capture syntax" do
-        assert break!(URI.decode_query() / 2) == 1
-        assert IEx.Pry.breaks() == [{1, URI, {:decode_query, 2}, 1}]
-      end
+    test "errors when setting up a break with no beam" do
+      assert_raise RuntimeError,
+                   "could not set breakpoint, could not find .beam file for IEx.HelpersTest",
+                   fn -> break!(__MODULE__, :setup, 1) end
+    end
 
-      test "sets up a breakpoint with call syntax" do
-        assert break!(URI.decode_query(_, %{})) == 1
-        assert IEx.Pry.breaks() == [{1, URI, {:decode_query, 2}, 1}]
-      end
+    test "errors when setting up a break for unknown function" do
+      assert_raise RuntimeError,
+                   "could not set breakpoint, unknown function/macro URI.unknown/2",
+                   fn -> break!(URI, :unknown, 2) end
+    end
 
-      test "sets up a breakpoint with guards syntax" do
-        assert break!(URI.decode_query(_, map) when is_map(map)) == 1
-        assert IEx.Pry.breaks() == [{1, URI, {:decode_query, 2}, 1}]
-      end
+    test "errors for non-Elixir modules" do
+      assert_raise RuntimeError,
+                   "could not set breakpoint, module :elixir was not written in Elixir",
+                   fn -> break!(:elixir, :unknown, 2) end
+    end
 
-      test "sets up a breakpoint on the given module" do
-        assert break!(URI, :decode_query, 2) == 1
-        assert IEx.Pry.breaks() == [{1, URI, {:decode_query, 2}, 1}]
-      end
+    test "prints table with breaks" do
+      break!(URI, :decode_query, 2)
 
-      test "resets breaks on the given id" do
-        assert break!(URI, :decode_query, 2) == 1
-        assert reset_break(1) == :ok
-        assert IEx.Pry.breaks() == [{1, URI, {:decode_query, 2}, 0}]
-      end
+      assert capture_io(fn -> breaks() end) == """
 
-      test "resets breaks on the given module" do
-        assert break!(URI, :decode_query, 2) == 1
-        assert reset_break(URI, :decode_query, 2) == :ok
-        assert IEx.Pry.breaks() == [{1, URI, {:decode_query, 2}, 0}]
-      end
+              ID   Module.function/arity   Pending stops
+             ---- ----------------------- ---------------
+              1    URI.decode_query/2      1
 
-      test "removes breaks in the given module" do
-        assert break!(URI.decode_query() / 2) == 1
-        assert remove_breaks(URI) == :ok
-        assert IEx.Pry.breaks() == []
-      end
+             """
 
-      test "removes breaks on all modules" do
-        assert break!(URI.decode_query() / 2) == 1
-        assert remove_breaks() == :ok
-        assert IEx.Pry.breaks() == []
-      end
+      assert capture_io(fn -> URI.decode_query("foo=bar", %{}) end) != ""
 
-      test "errors when setting up a breakpoint with invalid guard" do
-        assert_raise CompileError, ~r"cannot invoke local is_whatever/1 inside guard", fn ->
-          break!(URI.decode_query(_, map) when is_whatever(map))
-        end
-      end
+      assert capture_io(fn -> breaks() end) == """
 
-      test "errors when setting up a break with no beam" do
-        assert_raise RuntimeError,
-                     "could not set breakpoint, could not find .beam file for IEx.HelpersTest",
-                     fn -> break!(__MODULE__, :setup, 1) end
-      end
+              ID   Module.function/arity   Pending stops
+             ---- ----------------------- ---------------
+              1    URI.decode_query/2      0
 
-      test "errors when setting up a break for unknown function" do
-        assert_raise RuntimeError,
-                     "could not set breakpoint, unknown function/macro URI.unknown/2",
-                     fn -> break!(URI, :unknown, 2) end
-      end
+             """
 
-      test "errors for non-Elixir modules" do
-        assert_raise RuntimeError,
-                     "could not set breakpoint, module :elixir was not written in Elixir",
-                     fn -> break!(:elixir, :unknown, 2) end
-      end
+      assert capture_io(fn -> URI.decode_query("foo=bar", %{}) end) == ""
 
-      test "prints table with breaks" do
-        break!(URI, :decode_query, 2)
+      assert capture_io(fn -> breaks() end) == """
 
-        assert capture_io(fn -> breaks() end) == """
+              ID   Module.function/arity   Pending stops
+             ---- ----------------------- ---------------
+              1    URI.decode_query/2      0
 
-                ID   Module.function/arity   Pending stops
-               ---- ----------------------- ---------------
-                1    URI.decode_query/2      1
+             """
+    end
 
-               """
-
-        assert capture_io(fn -> URI.decode_query("foo=bar", %{}) end) != ""
-
-        assert capture_io(fn -> breaks() end) == """
-
-                ID   Module.function/arity   Pending stops
-               ---- ----------------------- ---------------
-                1    URI.decode_query/2      0
-
-               """
-
-        assert capture_io(fn -> URI.decode_query("foo=bar", %{}) end) == ""
-
-        assert capture_io(fn -> breaks() end) == """
-
-                ID   Module.function/arity   Pending stops
-               ---- ----------------------- ---------------
-                1    URI.decode_query/2      0
-
-               """
-      end
-
-      test "does not print table when there are no breaks" do
-        assert capture_io(fn -> breaks() end) == "No breakpoints set\n"
-      end
+    test "does not print table when there are no breaks" do
+      assert capture_io(fn -> breaks() end) == "No breakpoints set\n"
     end
   end
 
@@ -313,7 +311,7 @@ defmodule IEx.HelpersTest do
   end
 
   describe "runtime_info" do
-    test "shows vm information" do
+    test "shows VM information" do
       assert "\n## System and architecture" <> _ = capture_io(fn -> runtime_info() end)
     end
   end
@@ -325,54 +323,42 @@ defmodule IEx.HelpersTest do
 
     test "prints non-Elixir module specs" do
       assert capture_io(fn -> h(:timer.nonexistent_function()) end) ==
-               "No documentation for :timer.nonexistent_function was found\n"
+               ":timer was not compiled with docs\n"
 
       assert capture_io(fn -> h(:timer.nonexistent_function() / 1) end) ==
-               "No documentation for :timer.nonexistent_function/1 was found\n"
+               ":timer was not compiled with docs\n"
 
       assert capture_io(fn -> h(:erlang.trace_pattern()) end) ==
-               "No documentation for :erlang.trace_pattern was found\n"
+               ":erlang was not compiled with docs\n"
 
       assert capture_io(fn -> h(:erlang.trace_pattern() / 2) end) ==
-               "No documentation for :erlang.trace_pattern/2 was found\n"
+               ":erlang was not compiled with docs\n"
 
       assert capture_io(fn -> h(:timer.sleep() / 1) end) == """
              * :timer.sleep/1
 
-               @spec sleep(time) :: :ok when Time: timeout(), time: var
+               @spec sleep(time) :: :ok when time: timeout()
 
-             Documentation is not available for non-Elixir modules. Showing only specs.
+             Module was compiled without docs. Showing only specs.
              """
 
       assert capture_io(fn -> h(:timer.send_interval()) end) == """
-             * :timer.send_interval/3
-
-               @spec send_interval(time, pid, message) :: {:ok, tRef} | {:error, reason}
-                     when Time: time(),
-                          Pid: pid() | (regName :: atom()),
-                          Message: term(),
-                          TRef: tref(),
-                          Reason: term(),
-                          time: var,
-                          pid: var,
-                          message: var,
-                          tRef: var,
-                          reason: var
-
-             Documentation is not available for non-Elixir modules. Showing only specs.
              * :timer.send_interval/2
 
                @spec send_interval(time, message) :: {:ok, tRef} | {:error, reason}
-                     when Time: time(),
-                          Message: term(),
-                          TRef: tref(),
-                          Reason: term(),
-                          time: var,
-                          message: var,
-                          tRef: var,
-                          reason: var
+                     when time: time(), message: term(), tRef: tref(), reason: term()
 
-             Documentation is not available for non-Elixir modules. Showing only specs.
+             Module was compiled without docs. Showing only specs.
+             * :timer.send_interval/3
+
+               @spec send_interval(time, pid, message) :: {:ok, tRef} | {:error, reason}
+                     when time: time(),
+                          pid: pid() | (regName :: atom()),
+                          message: term(),
+                          tRef: tref(),
+                          reason: term()
+
+             Module was compiled without docs. Showing only specs.
              """
     end
 
@@ -383,8 +369,7 @@ defmodule IEx.HelpersTest do
       assert capture_io(fn -> h(:whatever) end) ==
                "Could not load module :whatever, got: nofile\n"
 
-      assert capture_io(fn -> h(:lists) end) ==
-               "Documentation is not available for non-Elixir modules, got: :lists\n"
+      assert capture_io(fn -> h(:lists) end) == ":lists was not compiled with docs\n"
     end
 
     test "prints function/macro documentation" do
@@ -392,7 +377,7 @@ defmodule IEx.HelpersTest do
       c_h = "* def c(files, path \\\\ :in_memory)\n\nCompiles the given files."
 
       eq_h =
-        "* def ==(left, right)\n\n  @spec term() == term() :: boolean()\n\nReturns `true` if the two items are equal.\n\n"
+        "* def left == right\n\n  @spec term() == term() :: boolean()\n\nguard: true\n\nReturns `true` if the two items are equal.\n\n"
 
       def_h =
         "* defmacro def(call, expr \\\\ nil)\n\nDefines a function with the given name and body."
@@ -414,6 +399,38 @@ defmodule IEx.HelpersTest do
 
       assert capture_io(fn -> h(__info__) end) ==
                "No documentation for Kernel.__info__ was found\n"
+    end
+
+    test "prints documentation metadata" do
+      content = """
+      defmodule Sample do
+        @moduledoc "Sample module"
+        @moduledoc deprecated: "Use OtherSample", since: "1.2.3", authors: ["Alice", "Bob"]
+        @doc "With metadata"
+        @doc since: "1.2.3", author: "Alice"
+        @deprecated "Use OtherSample.with_metadata/0"
+        def with_metadata(), do: 0
+        @doc "Without metadata"
+        def without_metadata(), do: 1
+      end
+      """
+
+      filename = "sample.ex"
+
+      with_file(filename, content, fn ->
+        assert c(filename, ".") == [Sample]
+
+        assert capture_io(fn -> h(Sample) end) ==
+                 "* Sample\n\ndeprecated: Use OtherSample\nsince: 1.2.3\n\nSample module\n"
+
+        assert capture_io(fn -> h(Sample.with_metadata()) end) ==
+                 "* def with_metadata()\n\ndeprecated: Use OtherSample.with_metadata/0\nsince: 1.2.3\n\nWith metadata\n"
+
+        assert capture_io(fn -> h(Sample.without_metadata()) end) ==
+                 "* def without_metadata()\n\nWithout metadata\n"
+      end)
+    after
+      cleanup_modules([Sample])
     end
 
     test "considers underscored functions without docs by default" do
@@ -502,6 +519,40 @@ defmodule IEx.HelpersTest do
       cleanup_modules([Impl, MyBehaviour])
     end
 
+    test "prints protocol function docs" do
+      output = capture_io(fn -> h(Enumerable.reduce()) end)
+      assert output =~ "@spec reduce(t(), acc(), reducer()) :: result()"
+      assert output =~ "Reduces the `enumerable`"
+    end
+
+    test "prints documentation for delegates" do
+      filename = "delegate.ex"
+
+      content = """
+      defmodule Delegator do
+        defdelegate func1, to: Delegated
+        @doc "Delegator func2 doc"
+        defdelegate func2, to: Delegated
+      end
+      defmodule Delegated do
+        def func1, do: 1
+        def func2, do: 2
+      end
+      """
+
+      with_file(filename, content, fn ->
+        assert c(filename, ".") |> Enum.sort() == [Delegated, Delegator]
+
+        assert capture_io(fn -> h(Delegator.func1()) end) ==
+                 "* def func1()\n\ndelegate_to: Delegated.func1/0\n\n\n"
+
+        assert capture_io(fn -> h(Delegator.func2()) end) ==
+                 "* def func2()\n\ndelegate_to: Delegated.func2/0\n\nDelegator func2 doc\n"
+      end)
+    after
+      cleanup_modules([Delegated, Delegator])
+    end
+
     test "prints type documentation when function docs are not available" do
       content = """
       defmodule MyTypes do
@@ -556,10 +607,17 @@ defmodule IEx.HelpersTest do
       Code.compiler_options(docs: true)
       cleanup_modules([Sample])
     end
+
+    test "does not print docs for @doc false functions" do
+      # Here we assert that @doc false works and that we are not leaking
+      # IEx.Pry internal functions.
+      assert capture_io(fn -> h(IEx.Pry.child_spec()) end) ==
+               "No documentation for IEx.Pry.child_spec was found\n"
+    end
   end
 
   describe "b" do
-    test "lists all callbacks for a module" do
+    test "lists all callbacks for an Elixir module" do
       assert capture_io(fn -> b(Mix) end) == "No callbacks for Mix were found\n"
       assert capture_io(fn -> b(NoMix) end) == "Could not load module NoMix, got: nofile\n"
 
@@ -568,6 +626,49 @@ defmodule IEx.HelpersTest do
 
              @callback checked_out?(opts()) :: boolean()
              """
+    end
+
+    test "lists all callbacks for an Erlang module" do
+      output = capture_io(fn -> b(:gen_server) end)
+
+      assert output =~ "@callback handle_cast(request :: term(), state :: term()) ::"
+      assert output =~ "@callback handle_info(info :: :timeout | term(), state :: term()) ::"
+      assert output =~ "@callback init(args :: term()) ::"
+    end
+
+    test "lists all macrocallbacks for a module" do
+      filename = "macrocallbacks.ex"
+
+      content = """
+      defmodule Macrocallbacks do
+        @macrocallback test(:foo) :: integer
+      end
+      """
+
+      with_file(filename, content, fn ->
+        assert c(filename, ".") == [Macrocallbacks]
+
+        assert capture_io(fn -> b(Macrocallbacks) end) =~
+                 "@macrocallback test(:foo) :: integer()\n\n"
+      end)
+    after
+      cleanup_modules([Macrocallbacks])
+    end
+
+    test "lists all callbacks for a protocol" do
+      assert capture_io(fn -> b(Enumerable) end) =~ """
+             @callback count(t()) :: {:ok, non_neg_integer()} | {:error, module()}
+
+             @callback member?(t(), term()) :: {:ok, boolean()} | {:error, module()}
+
+             @callback reduce(t(), acc(), reducer()) :: result()
+             """
+    end
+
+    test "prints protocol function docs" do
+      output = capture_io(fn -> b(Enumerable.reduce()) end)
+      assert output =~ "@callback reduce(t(), acc(), reducer()) :: result()"
+      assert output =~ "Reduces the `enumerable`"
     end
 
     test "lists callback with multiple clauses" do
@@ -588,6 +689,13 @@ defmodule IEx.HelpersTest do
                @callback test(:foo) :: integer()
                @callback test(:bar) :: [integer()]
                """
+
+        assert capture_io(fn -> b(MultipleClauseCallback.test()) end) =~ """
+               @callback test(:foo) :: integer()
+               @callback test(:bar) :: [integer()]
+
+               callback
+               """
       end)
     after
       cleanup_modules([MultipleClauseCallback])
@@ -604,6 +712,30 @@ defmodule IEx.HelpersTest do
 
       assert capture_io(fn -> b(Exception.message() / 1) end) ==
                "@callback message(t()) :: String.t()\n\n"
+
+      assert capture_io(fn -> b(:gen_server.handle_cast() / 2) end) =~
+               "@callback handle_cast(request :: term(), state :: term()) ::"
+    end
+
+    test "prints callback documentation metadata" do
+      filename = "callback_with_metadata.ex"
+
+      content = """
+      defmodule CallbackWithMetadata do
+        @doc "callback"
+        @doc since: "1.2.3", deprecated: "Use handle_test/1", purpose: :test
+        @callback test(:foo) :: integer
+      end
+      """
+
+      with_file(filename, content, fn ->
+        assert c(filename, ".") == [CallbackWithMetadata]
+
+        assert capture_io(fn -> b(CallbackWithMetadata.test()) end) ==
+                 "@callback test(:foo) :: integer()\n\ndeprecated: Use handle_test/1\nsince: 1.2.3\n\ncallback\n"
+      end)
+    after
+      cleanup_modules([CallbackWithMetadata])
     end
 
     test "prints optional callback" do
@@ -612,8 +744,9 @@ defmodule IEx.HelpersTest do
       content = """
       defmodule OptionalCallbacks do
         @doc "callback"
-        @callback optional_1(:foo) :: integer
-        @optional_callbacks optional_1: 1
+        @callback optional_callback(:foo) :: integer
+        @macrocallback optional_macrocallback(:bar) :: atom
+        @optional_callbacks optional_callback: 1, optional_macrocallback: 1
       end
       """
 
@@ -621,20 +754,67 @@ defmodule IEx.HelpersTest do
         assert c(filename, ".") == [OptionalCallbacks]
 
         assert capture_io(fn -> b(OptionalCallbacks) end) =~ """
-               @callback optional_1(:foo) :: integer()
+               @callback optional_callback(:foo) :: integer()
 
-               @optional_callbacks [optional_1: 1]
+               @macrocallback optional_macrocallback(:bar) :: atom()
+
+               @optional_callbacks [optional_callback: 1, optional_macrocallback: 1]
 
                """
       end)
     after
       cleanup_modules([OptionalCallbacks])
     end
+
+    test "does not print docs for @doc false callbacks" do
+      filename = "hidden_callbacks.ex"
+
+      content = """
+      defmodule HiddenCallbacks do
+        @doc false
+        @callback hidden_callback() :: integer
+
+        @doc false
+        @macrocallback hidden_macrocallback() :: integer
+      end
+      """
+
+      with_file(filename, content, fn ->
+        assert c(filename, ".") == [HiddenCallbacks]
+
+        assert capture_io(fn -> b(HiddenCallbacks) end) =~
+                 "No callbacks for HiddenCallbacks were found\n"
+      end)
+    after
+      cleanup_modules([HiddenCallbacks])
+    end
   end
 
   describe "t" do
-    test "prints when there is no type information" do
+    test "prints when there is no type information or the type is private" do
       assert capture_io(fn -> t(IEx) end) == "No type information for IEx was found\n"
+
+      assert capture_io(fn -> t(Enum.doesnt_exist()) end) ==
+               "No type information for Enum.doesnt_exist was found or " <>
+                 "Enum.doesnt_exist is private\n"
+
+      contents = """
+      defmodule TypeSample do
+        @type public_so_t_doesnt_warn() :: t()
+        @typep t() :: term()
+      end
+      """
+
+      filename = "typesample.ex"
+
+      with_file(filename, contents, fn ->
+        assert c(filename, ".") == [TypeSample]
+
+        assert capture_io(fn -> t(TypeSample.t() / 0) end) ==
+                 "No type information for TypeSample.t was found or TypeSample.t is private\n"
+      end)
+    after
+      cleanup_modules([TypeSample])
     end
 
     test "prints all types in module" do
@@ -654,7 +834,7 @@ defmodule IEx.HelpersTest do
     test "prints type documentation" do
       content = """
       defmodule TypeSample do
-        @typedoc "An id with description."
+        @typedoc "An ID with description."
         @type id_with_desc :: {number, String.t}
       end
       """
@@ -667,13 +847,40 @@ defmodule IEx.HelpersTest do
         assert capture_io(fn -> t(TypeSample.id_with_desc() / 0) end) == """
                @type id_with_desc() :: {number(), String.t()}
 
-               An id with description.
+               An ID with description.
                """
 
         assert capture_io(fn -> t(TypeSample.id_with_desc()) end) == """
                @type id_with_desc() :: {number(), String.t()}
 
-               An id with description.
+               An ID with description.
+               """
+      end)
+    after
+      cleanup_modules([TypeSample])
+    end
+
+    test "prints type documentation metadata" do
+      content = """
+      defmodule TypeSample do
+        @typedoc "An ID with description."
+        @typedoc since: "1.2.3", deprecated: "Use t/0", purpose: :test
+        @type id_with_desc :: {number, String.t}
+      end
+      """
+
+      filename = "typesample.ex"
+
+      with_file(filename, content, fn ->
+        assert c(filename, ".") == [TypeSample]
+
+        assert capture_io(fn -> t(TypeSample.id_with_desc()) end) == """
+               @type id_with_desc() :: {number(), String.t()}
+
+               deprecated: Use t/0
+               since: 1.2.3
+
+               An ID with description.
                """
       end)
     after
@@ -730,7 +937,7 @@ defmodule IEx.HelpersTest do
   describe "exports" do
     test "prints module exports" do
       exports = capture_io(fn -> exports(IEx.Autocomplete) end)
-      assert exports == "expand/1      expand/2      exports/1     \n"
+      assert exports == "expand/1      expand/2      exports/1     remsh/1       \n"
     end
   end
 
@@ -904,12 +1111,14 @@ defmodule IEx.HelpersTest do
   end
 
   describe "l" do
-    test "loads a given module" do
-      assert_raise UndefinedFunctionError, ~r"function Sample.run/0 is undefined", fn ->
-        Sample.run()
-      end
-
+    test "returns error tuple for nonexistent modules" do
       assert l(:nonexistent_module) == {:error, :nofile}
+    end
+
+    test "loads a given module" do
+      assert_raise UndefinedFunctionError,
+                   ~r"function Sample.run/0 is undefined",
+                   fn -> Sample.run() end
 
       filename = "sample.ex"
 
@@ -919,14 +1128,11 @@ defmodule IEx.HelpersTest do
 
         File.write!(filename, "defmodule Sample do end")
         elixirc(["sample.ex"])
-
         assert l(Sample) == {:module, Sample}
 
-        message = "function Sample.run/0 is undefined or private"
-
-        assert_raise UndefinedFunctionError, message, fn ->
-          Sample.run()
-        end
+        assert_raise UndefinedFunctionError,
+                     ~r"function Sample.run/0 is undefined",
+                     fn -> Sample.run() end
       end)
     after
       # Clean up the old version left over after l()
@@ -935,14 +1141,12 @@ defmodule IEx.HelpersTest do
   end
 
   describe "nl" do
+    @tag :capture_log
     test "loads a given module on the given nodes" do
+      assert nl([node()], :lists) == {:ok, [{:nonode@nohost, :error, :sticky_directory}]}
       assert nl(:nonexistent_module) == {:error, :nofile}
-      assert nl([node()], Enum) == {:ok, [{:nonode@nohost, :loaded, Enum}]}
       assert nl([:nosuchnode@badhost], Enum) == {:ok, [{:nosuchnode@badhost, :badrpc, :nodedown}]}
-
-      capture_log(fn ->
-        assert nl([node()], :lists) == {:ok, [{:nonode@nohost, :error, :sticky_directory}]}
-      end)
+      assert nl([node()], Enum) == {:ok, [{:nonode@nohost, :loaded, Enum}]}
     end
   end
 
@@ -953,7 +1157,7 @@ defmodule IEx.HelpersTest do
       end
     end
 
-    test "reloads elixir modules" do
+    test "reloads Elixir modules" do
       message = ~r"function Sample.run/0 is undefined \(module Sample is not available\)"
 
       assert_raise UndefinedFunctionError, message, fn ->
@@ -1003,8 +1207,8 @@ defmodule IEx.HelpersTest do
     end
   end
 
-  describe "pid" do
-    test "builds a pid from string" do
+  describe "pid/1,3" do
+    test "builds a PID from string" do
       assert inspect(pid("0.32767.3276")) == "#PID<0.32767.3276>"
       assert inspect(pid("0.5.6")) == "#PID<0.5.6>"
 
@@ -1013,12 +1217,55 @@ defmodule IEx.HelpersTest do
       end
     end
 
-    test "builds a pid from integers" do
+    test "builds a PID from integers" do
       assert inspect(pid(0, 32767, 3276)) == "#PID<0.32767.3276>"
       assert inspect(pid(0, 5, 6)) == "#PID<0.5.6>"
 
       assert_raise FunctionClauseError, fn ->
         pid(0, 6, -6)
+      end
+    end
+  end
+
+  describe "port" do
+    test "builds a port from string" do
+      assert inspect(port("0.8080")) == "#Port<0.8080>"
+      assert inspect(port("0.0")) == "#Port<0.0>"
+
+      assert_raise ArgumentError, fn ->
+        port("0.-6")
+      end
+    end
+
+    test "builds a port from integers" do
+      assert inspect(port(0, 8080)) == "#Port<0.8080>"
+      assert inspect(port(0, 0)) == "#Port<0.0>"
+
+      assert_raise FunctionClauseError, fn ->
+        port(-1, -6)
+      end
+    end
+  end
+
+  describe "ref" do
+    test "builds a ref from string" do
+      ref = make_ref()
+      [_, inner, _] = String.split(inspect(ref), ["<", ">"])
+      assert ref(inner) == ref
+
+      assert_raise ArgumentError, fn ->
+        ref("0.6.6.-6")
+      end
+    end
+
+    test "builds a ref from integers" do
+      ref = make_ref()
+      [_, inner, _] = String.split(inspect(ref), ["<", ">"])
+      [p1, p2, p3, p4] = inner |> String.split(".") |> Enum.map(&String.to_integer/1)
+      assert ref(p1, p2, p3, p4) == ref
+
+      assert_raise FunctionClauseError, fn ->
+        ref(0, 6, 6, -6)
       end
     end
   end

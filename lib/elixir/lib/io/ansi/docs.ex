@@ -7,14 +7,15 @@ defmodule IO.ANSI.Docs do
   @doc """
   The default options used by this module.
 
-  The supported values are:
+  The supported keys are:
 
     * `:enabled`           - toggles coloring on and off (true)
     * `:doc_bold`          - bold text (bright)
     * `:doc_code`          - code blocks (cyan)
     * `:doc_headings`      - h1, h2, h3, h4, h5, h6 headings (yellow)
+    * `:doc_metadata`      - documentation metadata keys (yellow)
     * `:doc_inline_code`   - inline code (cyan)
-    * `:doc_table_heading` - style for table headings
+    * `:doc_table_heading` - the style for table headings
     * `:doc_title`         - top level heading (reverse, yellow)
     * `:doc_underline`     - underlined text (underline)
     * `:width`             - the width to format the text (80)
@@ -29,6 +30,7 @@ defmodule IO.ANSI.Docs do
       doc_bold: [:bright],
       doc_code: [:cyan],
       doc_headings: [:yellow],
+      doc_metadata: [:yellow],
       doc_inline_code: [:cyan],
       doc_table_heading: [:reverse],
       doc_title: [:reverse, :yellow],
@@ -54,9 +56,49 @@ defmodule IO.ANSI.Docs do
   end
 
   @doc """
+  Prints documentation metadata (only `delegate_to`, `deprecated`, `guard`, and `since` for now).
+
+  See `default_options/0` for docs on the supported options.
+  """
+  @spec print_metadata(map, keyword) :: :ok
+  def print_metadata(metadata, options \\ []) when is_map(metadata) do
+    options = Keyword.merge(default_options(), options)
+    print_each_metadata(metadata, options) && IO.write("\n")
+  end
+
+  @metadata_filter [:deprecated, :guard, :since]
+
+  defp print_each_metadata(metadata, options) do
+    Enum.reduce(metadata, false, fn
+      {key, value}, _printed when is_binary(value) and key in @metadata_filter ->
+        label = metadata_label(key, options)
+        indent = String.duplicate(" ", length_without_escape(label, 0) + 1)
+        write_with_wrap([label | String.split(value, @spaces)], options[:width], indent, true)
+
+      {key, value}, _printed when is_boolean(value) and key in @metadata_filter ->
+        IO.puts([metadata_label(key, options), ' ', to_string(value)])
+
+      {:delegate_to, {m, f, a}}, _printed ->
+        label = metadata_label(:delegate_to, options)
+        IO.puts([label, ' ', Exception.format_mfa(m, f, a)])
+
+      _metadata, printed ->
+        printed
+    end)
+  end
+
+  defp metadata_label(key, options) do
+    if options[:enabled] do
+      "#{color(:doc_metadata, options)}#{key}:#{IO.ANSI.reset()}"
+    else
+      "#{key}:"
+    end
+  end
+
+  @doc """
   Prints the documentation body.
 
-  In addition to the printing string, takes a set of options
+  In addition to the printing string, takes a set of `options`
   defined in `default_options/0`.
   """
   @spec print(String.t(), keyword) :: :ok
@@ -482,13 +524,14 @@ defmodule IO.ANSI.Docs do
   end
 
   defp escape_underlines_in_link(text) do
-    ~r{https?\S*}
+    # Regular expression adapted from https://tools.ietf.org/html/rfc3986#appendix-B
+    ~r{[a-z][a-z0-9\+\-\.]*://\S*}i
     |> Regex.recompile!()
     |> Regex.replace(text, &String.replace(&1, "_", "\\_"))
   end
 
   defp remove_square_brackets_in_link(text) do
-    ~r{\[(.*?)\]\((.*?)\)}
+    ~r{\[([^\]]*?)\]\((.*?)\)}
     |> Regex.recompile!()
     |> Regex.replace(text, "\\1 (\\2)")
   end
@@ -496,8 +539,9 @@ defmodule IO.ANSI.Docs do
   # We have four entries: **, *, _ and `.
   #
   # The first three behave the same while the last one is simpler
-  # when it comes to delimiters. But, since the first has two
-  # characters, we need to handle 3 cases:
+  # when it comes to delimiters as it ignores spaces and escape
+  # characters. But, since the first has two characters, we need to
+  # handle 3 cases:
   #
   # 1. **
   # 2. _ and *
@@ -559,8 +603,7 @@ defmodule IO.ANSI.Docs do
   end
 
   # An escape is not valid inside `
-  defp handle_inline(<<?\\, mark, rest::binary>>, limit, buffer, acc, options)
-       when not (mark == limit and mark == ?`) do
+  defp handle_inline(<<?\\, mark, rest::binary>>, limit, buffer, acc, options) when limit != ?` do
     handle_inline(rest, limit, [mark | buffer], acc, options)
   end
 

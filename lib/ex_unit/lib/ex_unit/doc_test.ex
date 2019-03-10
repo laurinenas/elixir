@@ -39,9 +39,9 @@ defmodule ExUnit.DocTest do
 
   Expressions on multiple lines are also supported:
 
-      iex> Enum.map [1, 2, 3], fn(x) ->
+      iex> Enum.map([1, 2, 3], fn x ->
       ...>   x * 2
-      ...> end
+      ...> end)
       [2, 4, 6]
 
   Multiple results can be checked within the same test:
@@ -84,7 +84,7 @@ defmodule ExUnit.DocTest do
 
   You can also select or skip functions when calling
   `doctest`. See the documentation on the `:except` and `:only` options below
-  for more info.
+  for more information.
 
   ## Opaque types
 
@@ -126,7 +126,7 @@ defmodule ExUnit.DocTest do
 
   You can also showcase expressions raising an exception, for example:
 
-      iex(1)> String.to_atom((fn() -> 1 end).())
+      iex(1)> String.to_atom((fn -> 1 end).())
       ** (ArgumentError) argument error
 
   What DocTest will be looking for is a line starting with `** (` and it
@@ -147,6 +147,8 @@ defmodule ExUnit.DocTest do
   suite run.
   """
 
+  @opaque_type_regex ~r/#[\w\.]+</
+
   defmodule Error do
     defexception [:message]
 
@@ -165,7 +167,7 @@ defmodule ExUnit.DocTest do
   This macro is used to generate ExUnit test cases for doctests.
 
   Calling `doctest(Module)` will generate tests for all doctests found
-  in the module `Module`
+  in the `module`.
 
   Options can also be given:
 
@@ -187,20 +189,20 @@ defmodule ExUnit.DocTest do
 
   This macro is auto-imported with every `ExUnit.Case`.
   """
-  defmacro doctest(mod, opts \\ []) do
+  defmacro doctest(module, opts \\ []) do
     require =
-      if is_atom(Macro.expand(mod, __CALLER__)) do
+      if is_atom(Macro.expand(module, __CALLER__)) do
         quote do
-          require unquote(mod)
+          require unquote(module)
         end
       end
 
     tests =
-      quote bind_quoted: [mod: mod, opts: opts] do
+      quote bind_quoted: [module: module, opts: opts] do
         env = __ENV__
-        file = ExUnit.DocTest.__file__(mod)
+        file = ExUnit.DocTest.__file__(module)
 
-        for {name, test} <- ExUnit.DocTest.__doctests__(mod, opts) do
+        for {name, test} <- ExUnit.DocTest.__doctests__(module, opts) do
           @file file
           doc = ExUnit.Case.register_test(env, :doctest, name, [])
           def unquote(doc)(_), do: unquote(test)
@@ -232,12 +234,20 @@ defmodule ExUnit.DocTest do
   end
 
   defp filter_by_opts(tests, opts) do
-    only = opts[:only] || []
-    except = opts[:except] || []
+    except = Keyword.get(opts, :except, [])
 
-    tests
-    |> Stream.reject(&(&1.fun_arity in except))
-    |> Stream.filter(&(Enum.empty?(only) or &1.fun_arity in only))
+    case Keyword.fetch(opts, :only) do
+      {:ok, []} ->
+        []
+
+      {:ok, only} ->
+        tests
+        |> Stream.reject(&(&1.fun_arity in except))
+        |> Stream.filter(&(&1.fun_arity in only))
+
+      :error ->
+        Stream.reject(tests, &(&1.fun_arity in except))
+    end
   end
 
   ## Compilation of extracted tests
@@ -271,14 +281,7 @@ defmodule ExUnit.DocTest do
         test_case_content(expr, expected, location, stack)
       end)
 
-    quote do
-      unquote_splicing(test_import(module, do_import))
-      unquote(gen_code_for_tests(tests, whole_expr(exprs), stack))
-    end
-  end
-
-  defp whole_expr(exprs) do
-    Enum.map_join(exprs, "\n", &elem(&1, 0))
+    {:__block__, [], test_import(module, do_import) ++ tests}
   end
 
   defp multiple_exceptions?(exprs) do
@@ -286,28 +289,6 @@ defmodule ExUnit.DocTest do
       {_, {:error, _, _}} -> true
       _ -> false
     end) > 1
-  end
-
-  defp gen_code_for_tests(tests, whole_expr, stack) do
-    quote do
-      stack = unquote(stack)
-
-      try do
-        # Put all tests into one context
-        (unquote_splicing(tests))
-      rescue
-        e in ExUnit.AssertionError ->
-          reraise e, stack
-
-        error ->
-          message =
-            "Doctest failed: got #{inspect(error.__struct__)} with message " <>
-              inspect(Exception.message(error))
-
-          error = [message: message, expr: unquote(String.trim(whole_expr))]
-          reraise ExUnit.AssertionError, error, __STACKTRACE__
-      end
-    end
   end
 
   defp test_case_content(expr, {:test, expected}, location, stack) do
@@ -411,6 +392,19 @@ defmodule ExUnit.DocTest do
         ex_message = "(#{inspect(e.__struct__)}) #{Exception.message(e)}"
         message = "Doctest did not compile, got: #{ex_message}"
 
+        message =
+          if e.__struct__ == TokenMissingError and expr =~ Regex.recompile!(@opaque_type_regex) do
+            message <>
+              """
+              . If you are planning to assert on the result of an iex> expression \
+              which contains a value inspected as #Name<...>, please make sure \
+              the inspected value is placed at the beginning of the expression; \
+              otherwise Elixir will treat it as a comment due to the leading sign #.\
+              """
+          else
+            message
+          end
+
         opts =
           if String.valid?(expr) do
             [message: message, expr: String.trim(expr)]
@@ -427,39 +421,50 @@ defmodule ExUnit.DocTest do
   ## Extraction of the tests
 
   defp extract(module) do
-    all_docs = Code.get_docs(module, :all)
+    case Code.fetch_docs(module) do
+      {:docs_v1, annotation, _, _, moduledoc, _, docs} ->
+        extract_from_moduledoc(annotation, moduledoc, module) ++
+          extract_from_docs(Enum.sort(docs), module)
 
-    unless all_docs do
-      raise Error,
-        module: module,
-        message:
-          "could not retrieve the documentation for module #{inspect(module)}. " <>
-            "The module was not compiled with documentation or its BEAM file cannot be accessed"
+      {:error, reason} ->
+        raise Error,
+          module: module,
+          message:
+            "could not retrieve the documentation for module #{inspect(module)}. " <>
+              explain_docs_error(reason)
     end
-
-    moduledocs = extract_from_moduledoc(all_docs[:moduledoc], module)
-
-    docs =
-      for doc <- all_docs[:docs],
-          doc <- extract_from_doc(doc, module),
-          do: doc
-
-    moduledocs ++ docs
   end
 
-  defp extract_from_moduledoc({_, doc}, _module) when doc in [false, nil], do: []
+  defp explain_docs_error(:module_not_found),
+    do: "The BEAM file of the module cannot be accessed"
 
-  defp extract_from_moduledoc({line, doc}, module) do
-    for test <- extract_tests(line, doc, module) do
+  defp explain_docs_error(:chunk_not_found),
+    do: "The module was not compiled with documentation"
+
+  defp explain_docs_error({:invalid_chunk, _}),
+    do: "The documentation chunk in the module is invalid"
+
+  defp extract_from_moduledoc(_, doc, _module) when doc in [:none, :hidden], do: []
+
+  defp extract_from_moduledoc(annotation, %{"en" => doc}, module) do
+    for test <- extract_tests(:erl_anno.line(annotation), doc, module) do
       normalize_test(test, :moduledoc)
     end
   end
 
-  defp extract_from_doc({_, _, _, _, doc}, _module) when doc in [false, nil], do: []
+  defp extract_from_docs(docs, module) do
+    for doc <- docs, doc <- extract_from_doc(doc, module), do: doc
+  end
 
-  defp extract_from_doc({fa, line, _, _, doc}, module) do
+  defp extract_from_doc({{kind, _, _}, _, _, doc, _}, _module)
+       when kind not in [:function, :macro] or doc in [:none, :hidden],
+       do: []
+
+  defp extract_from_doc({{_, name, arity}, annotation, _, %{"en" => doc}, _}, module) do
+    line = :erl_anno.line(annotation)
+
     for test <- extract_tests(line, doc, module) do
-      normalize_test(test, fa)
+      normalize_test(test, {name, arity})
     end
   end
 
@@ -512,7 +517,16 @@ defmodule ExUnit.DocTest do
         raise Error,
           line: line_no,
           module: module,
-          message: "indentation level mismatch: #{inspect(line)}, should have been #{n_spaces}"
+          message: """
+          indentation level mismatch on doctest line: #{inspect(line)}
+
+          If you are planning to assert on the result of an `iex>` expression, \
+          make sure the result is indented at the beginning of `iex>`, which \
+          in this case is exactly #{n_spaces}.
+
+          If instead you have an `iex>` expression that spans over multiple lines, \
+          please make sure that each line after the first one begins with `...>`.
+          """
     end
 
     adjusted_lines = [{stripped_line, line_no} | adjusted_lines]

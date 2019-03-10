@@ -24,36 +24,42 @@ defmodule MacroTest do
   import Macro.ExternalTest
 
   describe "escape/2" do
-    test "handles tuples with size different than two" do
+    test "returns tuples with size equal to two" do
+      assert Macro.escape({:a, :b}) == {:a, :b}
+    end
+
+    test "returns lists" do
+      assert Macro.escape([1, 2, 3]) == [1, 2, 3]
+    end
+
+    test "escapes tuples with size different than two" do
       assert Macro.escape({:a}) == {:{}, [], [:a]}
       assert Macro.escape({:a, :b, :c}) == {:{}, [], [:a, :b, :c]}
       assert Macro.escape({:a, {1, 2, 3}, :c}) == {:{}, [], [:a, {:{}, [], [1, 2, 3]}, :c]}
     end
 
-    test "simply returns tuples with size equal to two" do
-      assert Macro.escape({:a, :b}) == {:a, :b}
-    end
-
-    test "simply returns any other structure" do
-      assert Macro.escape([1, 2, 3]) == [1, 2, 3]
-    end
-
-    test "handles maps" do
+    test "escapes maps" do
       assert Macro.escape(%{a: 1}) == {:%{}, [], [a: 1]}
     end
 
-    test "handles bitstring" do
+    test "escapes bitstring" do
       assert {:<<>>, [], args} = Macro.escape(<<300::12>>)
       assert [{:::, [], [1, {:size, [], [4]}]}, {:::, [], [",", {:binary, [], []}]}] = args
     end
 
-    test "works recursively" do
+    test "escapes recursively" do
       assert Macro.escape([1, {:a, :b, :c}, 3]) == [1, {:{}, [], [:a, :b, :c]}, 3]
     end
 
-    test "with improper lists" do
+    test "escapes improper lists" do
       assert Macro.escape([1 | 2]) == [{:|, [], [1, 2]}]
       assert Macro.escape([1, 2 | 3]) == [1, {:|, [], [2, 3]}]
+    end
+
+    test "prunes metadata" do
+      meta = [nothing: :important, counter: 1]
+      assert Macro.escape({:foo, meta, []}) == {:{}, [], [:foo, meta, []]}
+      assert Macro.escape({:foo, meta, []}, prune_metadata: true) == {:{}, [], [:foo, [], []]}
     end
 
     test "with unquote" do
@@ -115,6 +121,10 @@ defmodule MacroTest do
         quote(unquote: false, do: [1, unquote_splicing([2]), 3, unquote_splicing([4]) | [5]])
 
       assert eval_escaped(contents) == [1, 2, 3, 4, 5]
+    end
+
+    test "does not add context to quote" do
+      assert Macro.escape({:quote, [], [[do: :foo]]}) == {:{}, [], [:quote, [], [[do: :foo]]]}
     end
   end
 
@@ -226,8 +236,8 @@ defmodule MacroTest do
 
     test "does not expand module attributes" do
       message =
-        "could not call get_attribute with argument #{inspect(__MODULE__)} " <>
-          "because the module is already compiled"
+        "could not call Module.get_attribute/2 because the module #{inspect(__MODULE__)} " <>
+          "is already compiled. Use the Module.__info__/1 callback or Code.fetch_docs/1 instead"
 
       assert_raise ArgumentError, message, fn ->
         Macro.expand_once(quote(do: @foo), __ENV__)
@@ -283,7 +293,7 @@ defmodule MacroTest do
            end).bar([1, 2, 3])
         end
 
-      assert Macro.to_string(quoted) == "(foo() do\n  :ok\nend).bar([1, 2, 3])"
+      assert Macro.to_string(quoted) == "(foo do\n  :ok\nend).bar([1, 2, 3])"
     end
 
     test "atom remote call" do
@@ -443,7 +453,7 @@ defmodule MacroTest do
         end
 
       expected = """
-      try() do
+      try do
         foo
       rescue
         ArgumentError ->
@@ -770,7 +780,15 @@ defmodule MacroTest do
       Macro.pipe(1, quote(do: 1 + 1), 0) == quote(do: foo(1))
     end
 
-    # TODO: restore this test when we drop unary operator support in pipes
+    assert_raise ArgumentError, ~r"cannot pipe 1 into <<1>>", fn ->
+      Macro.pipe(1, quote(do: <<1>>), 0)
+    end
+
+    assert_raise ArgumentError, ~r"cannot pipe 1 into the special form unquote/1", fn ->
+      Macro.pipe(1, quote(do: unquote()), 0)
+    end
+
+    # TODO: Restore this test when we drop unary operator support in pipes
     # assert_raise ArgumentError, ~r"cannot pipe 1 into \+1", fn ->
     #   Macro.pipe(1, quote(do: + 1), 0)
     # end
@@ -891,12 +909,42 @@ defmodule MacroTest do
 
   test "generate_arguments/2" do
     assert Macro.generate_arguments(0, __MODULE__) == []
-    assert Macro.generate_arguments(1, __MODULE__) == [{:var1, [], __MODULE__}]
+    assert Macro.generate_arguments(1, __MODULE__) == [{:arg1, [], __MODULE__}]
     assert Macro.generate_arguments(4, __MODULE__) |> length == 4
   end
 
   defp postwalk(ast) do
     Macro.postwalk(ast, [], &{&1, [&1 | &2]}) |> elem(1) |> Enum.reverse()
+  end
+
+  test "struct!/2 expands structs multiple levels deep" do
+    defmodule StructBang do
+      defstruct [:a, :b]
+
+      assert Macro.struct!(StructBang, __ENV__) == %{__struct__: StructBang, a: nil, b: nil}
+
+      def within_function do
+        assert Macro.struct!(StructBang, __ENV__) == %{__struct__: StructBang, a: nil, b: nil}
+      end
+
+      defmodule Nested do
+        assert Macro.struct!(StructBang, __ENV__) == %{__struct__: StructBang, a: nil, b: nil}
+      end
+    end
+
+    assert Macro.struct!(StructBang, __ENV__) == %{__struct__: StructBang, a: nil, b: nil}
+  end
+
+  test "operator?/2" do
+    assert Macro.operator?(:+, 2)
+    assert Macro.operator?(:+, 1)
+    refute Macro.operator?(:+, 0)
+  end
+
+  test "quoted_literal?/1" do
+    assert Macro.quoted_literal?(quote(do: "foo"))
+    assert Macro.quoted_literal?(quote(do: {"foo", 1}))
+    refute Macro.quoted_literal?(quote(do: {"foo", var}))
   end
 
   test "underscore/1" do

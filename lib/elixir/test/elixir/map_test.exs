@@ -60,6 +60,8 @@ defmodule MapTest do
     assert %{
              try do
                1
+             rescue
+               _exception -> :exception
              else
                a -> a
              end => 1
@@ -141,12 +143,45 @@ defmodule MapTest do
     end
   end
 
-  test "map access" do
+  test "map dot access" do
     assert @sample.a == 1
 
     assert_raise KeyError, fn ->
       @sample.c
     end
+  end
+
+  test "put/3 optimized by the compiler" do
+    map = %{a: 1, b: 2}
+
+    assert Map.put(map, :a, 2) == %{a: 2, b: 2}
+    assert Map.put(map, :c, 3) == %{a: 1, b: 2, c: 3}
+
+    assert Map.put(%{map | a: 2}, :a, 3) == %{a: 3, b: 2}
+    assert Map.put(%{map | a: 2}, :b, 3) == %{a: 2, b: 3}
+
+    assert Map.put(map, :a, 2) |> Map.put(:a, 3) == %{a: 3, b: 2}
+    assert Map.put(map, :a, 2) |> Map.put(:c, 3) == %{a: 2, b: 2, c: 3}
+    assert Map.put(map, :c, 3) |> Map.put(:a, 2) == %{a: 2, b: 2, c: 3}
+    assert Map.put(map, :c, 3) |> Map.put(:c, 4) == %{a: 1, b: 2, c: 4}
+  end
+
+  test "merge/2 with map literals optimized by the compiler" do
+    map = %{a: 1, b: 2}
+
+    assert Map.merge(map, %{a: 2}) == %{a: 2, b: 2}
+    assert Map.merge(map, %{c: 3}) == %{a: 1, b: 2, c: 3}
+    assert Map.merge(%{a: 2}, map) == %{a: 1, b: 2}
+    assert Map.merge(%{c: 3}, map) == %{a: 1, b: 2, c: 3}
+
+    assert Map.merge(%{map | a: 2}, %{a: 3}) == %{a: 3, b: 2}
+    assert Map.merge(%{map | a: 2}, %{b: 3}) == %{a: 2, b: 3}
+    assert Map.merge(%{a: 2}, %{map | a: 3}) == %{a: 3, b: 2}
+    assert Map.merge(%{a: 2}, %{map | b: 3}) == %{a: 1, b: 3}
+
+    assert Map.merge(map, %{a: 2}) |> Map.merge(%{a: 3, c: 3}) == %{a: 3, b: 2, c: 3}
+    assert Map.merge(map, %{c: 3}) |> Map.merge(%{c: 4}) == %{a: 1, b: 2, c: 4}
+    assert Map.merge(map, %{a: 3, c: 3}) |> Map.merge(%{a: 2}) == %{a: 2, b: 2, c: 3}
   end
 
   test "merge/3" do

@@ -16,7 +16,7 @@ For more information on running your project, see the official [Mix & OTP guide]
 
 ### Applications with supervision tree
 
-The `mix new` command also allows the `--sup` flag to scaffold an application with a supervision tree out of the box. We talk about supervision trees later on when discussing one of the common anti-patterns when writing libraries.
+The `mix new` command also allows the `--sup` option to scaffold an application with a supervision tree out of the box. We talk about supervision trees later on when discussing one of the common anti-patterns when writing libraries.
 
 ## Publishing
 
@@ -70,7 +70,7 @@ iex> File.read(1)
 ** (FunctionClauseError) no function clause matching in IO.chardata_to_string/1
 ```
 
-The usage of `:ok`/`:error` tuples is about the domain that the function works on, in this case, filesystem access. Bad arguments, logical errors, invalid options should raise regardless of the function name. If in doubt, prefer to return tuples instead of raising, as users of your library can always match on the results and raise if necessary.
+The usage of `:ok`/`:error` tuples is about the domain that the function works on, in this case, file system access. Bad arguments, logical errors, invalid options should raise regardless of the function name. If in doubt, prefer to return tuples instead of raising, as users of your library can always match on the results and raise if necessary.
 
 ### Avoid working with invalid data
 
@@ -100,7 +100,7 @@ This advice does not only apply to libraries but to any Elixir code. Every time 
 
 ### Avoid application configuration
 
-You should avoid using [the application environment](https://hexdocs.pm/elixir/Application.html#get_env/2) as the configuration mechanism for libraries. The application environment is **global** which means it becomes impossible for two dependencies to use your library in two different ways.
+You should avoid using the application environment (see `Application.get_env/2`) as the configuration mechanism for libraries. The application environment is **global** which means it becomes impossible for two dependencies to use your library in two different ways.
 
 Let's see a simple example. Imagine that you implement a library that breaks a string in two parts based on the first occurrence of the dash `-` character:
 
@@ -192,7 +192,7 @@ Although the previous section could be summarized as "avoid macros", both topics
 
 To quote [the official guide on Macros](https://elixir-lang.org/getting-started/meta/macros.html):
 
-> Even though Elixir attempts its best to provide a safe environment for macros, the major responsibility of writing clean code with macros falls on developers. Macros are harder to write than ordinary Elixir functions and it’s considered to be bad style to use them when they’re not necessary. So write macros responsibly.
+> Even though Elixir attempts its best to provide a safe environment for macros, the major responsibility of writing clean code with macros falls on developers. Macros are harder to write than ordinary Elixir functions and it's considered to be bad style to use them when they're not necessary. So write macros responsibly.
 >
 > Elixir already provides mechanisms to write your everyday code in a simple and readable fashion by using its data structures and functions. Macros should only be used as a last resort. Remember that **explicit is better than implicit**. **Clear code is better than concise code**.
 
@@ -202,7 +202,7 @@ When you absolutely have to use a macro, make sure that a macro is not the only 
 
 A developer must never use a process for code organization purposes. A process must be used to model runtime properties such as:
 
-  * Mutable state and access to shared resources (such as ets, files, etc)
+  * Mutable state and access to shared resources (such as ETS, files, etc.)
   * Concurrency and distribution
   * Initialization, shutdown and restart logic (as seen in supervisors)
   * System messages such as timer messages and monitoring events
@@ -235,7 +235,7 @@ def subtract(a, b) do
 end
 ```
 
-Use processes only to model runtime properties, never for code organization. And even when you think something could be done in parallel with processes, often it is best to let the callers of your library decide how to paralleiize, rather than impose a certain execution flow in users of your code.
+Use processes only to model runtime properties, never for code organization. And even when you think something could be done in parallel with processes, often it is best to let the callers of your library decide how to parallelize, rather than impose a certain execution flow in users of your code.
 
 ### Avoid spawning unsupervised processes
 
@@ -256,24 +256,22 @@ and then defining a `my_app/application.ex` file with the following template:
 
 ```elixir
 defmodule MyApp.Application do
-    # See https://hexdocs.pm/elixir/Application.html
-    # for more information on OTP Applications
-    @moduledoc false
+  # See https://hexdocs.pm/elixir/Application.html
+  # for more information on OTP Applications
+  @moduledoc false
 
-    use Application
+  use Application
 
-    def start(_type, _args) do
-      # List all child processes to be supervised
-      children = [
-        # Starts a worker by calling: MyApp.Worker.start_link(arg)
-        # {MyApp.Worker, arg},
-      ]
+  def start(_type, _args) do
+    children = [
+      # Starts a worker by calling: MyApp.Worker.start_link(arg)
+      # {MyApp.Worker, arg}
+    ]
 
-      # See https://hexdocs.pm/elixir/Supervisor.html
-      # for other strategies and supported options
-      opts = [strategy: :one_for_one, name: MyApp.Supervisor]
-      Supervisor.start_link(children, opts)
-    end
+    # See https://hexdocs.pm/elixir/Supervisor.html
+    # for other strategies and supported options
+    opts = [strategy: :one_for_one, name: MyApp.Supervisor]
+    Supervisor.start_link(children, opts)
   end
 end
 ```

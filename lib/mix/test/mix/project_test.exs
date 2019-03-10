@@ -9,7 +9,7 @@ defmodule Mix.ProjectTest do
     end
   end
 
-  test "returns consolidation path" do
+  test "consolidation_path/1" do
     config = [apps_path: "apps", build_per_environment: true]
 
     assert Mix.Project.consolidation_path(config) ==
@@ -19,6 +19,26 @@ defmodule Mix.ProjectTest do
 
     assert Mix.Project.consolidation_path(config) ==
              Path.join(File.cwd!(), "_build/dev/lib/sample/consolidated")
+  end
+
+  describe "build_path/1" do
+    test "considers the environment" do
+      assert Mix.Project.build_path(build_per_environment: true) ==
+               Path.join(File.cwd!(), "_build/dev")
+
+      assert Mix.Project.build_path(build_per_environment: false) ==
+               Path.join(File.cwd!(), "_build/shared")
+    end
+
+    test "considers the target" do
+      Mix.target(:rpi3)
+
+      assert Mix.Project.build_path(build_per_environment: true) ==
+               Path.join(File.cwd!(), "_build/rpi3_dev")
+
+      assert Mix.Project.build_path(build_per_environment: false) ==
+               Path.join(File.cwd!(), "_build/rpi3_shared")
+    end
   end
 
   test "push and pop projects" do
@@ -126,26 +146,6 @@ defmodule Mix.ProjectTest do
       end
 
       assert_receive {:mix_shell, :error, ["Error while loading project :hello at" <> _]}
-    end)
-  end
-
-  test "config_files", context do
-    Mix.Project.push(SampleProject)
-
-    in_tmp(context.test, fn ->
-      File.mkdir_p!("config/sub")
-      File.write!("config/config.exs", "[]")
-      File.write!("config/dev.exs", "[]")
-      File.write!("config/.exs", "[]")
-      File.write!("config/sub/init.exs", "[]")
-
-      files = Mix.Project.config_files()
-
-      assert __ENV__.file in files
-      assert "config/config.exs" in files
-      assert "config/dev.exs" in files
-      refute "config/.exs" in files
-      assert "config/sub/init.exs" in files
     end)
   end
 

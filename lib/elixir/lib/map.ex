@@ -2,6 +2,12 @@ defmodule Map do
   @moduledoc """
   A set of functions for working with maps.
 
+  Many functions for maps, which implement the `Enumerable` protocol,
+  are found in the `Enum` module. Additionally, the following functions
+  for maps are found in `Kernel`:
+
+    * `map_size/1`
+
   Maps are the "go to" key-value data structure in Elixir. Maps can be created
   with the `%{}` syntax, and key-value pairs can be expressed as `key => value`:
 
@@ -85,16 +91,6 @@ defmodule Map do
       iex> %{map | three: 3}
       ** (KeyError) key :three not found
 
-  ## Modules to work with maps
-
-  This module aims to provide functions that perform operations specific to maps
-  (like accessing keys, updating values, and so on). For traversing maps as
-  collections, developers should use the `Enum` module that works across a
-  variety of data types.
-
-  The `Kernel` module also provides a few functions to work with maps: for
-  example, `Kernel.map_size/1` to know the number of key-value pairs in a map or
-  `Kernel.is_map/1` to know if a term is a map.
   """
 
   @type key :: any
@@ -169,7 +165,7 @@ defmodule Map do
 
       iex> Map.new([{:b, 1}, {:a, 2}])
       %{a: 2, b: 1}
-      iex> Map.new([a: 1, a: 2, a: 3])
+      iex> Map.new(a: 1, a: 2, a: 3)
       %{a: 3}
 
   """
@@ -266,7 +262,7 @@ defmodule Map do
       ** (KeyError) key :b not found in: %{a: 1}
 
   """
-  @spec fetch!(map, key) :: value | no_return
+  @spec fetch!(map, key) :: value
   def fetch!(map, key) do
     :maps.get(key, map)
   end
@@ -329,7 +325,7 @@ defmodule Map do
       ** (KeyError) key :b not found in: %{a: 1}
 
   """
-  @since "1.5.0"
+  @doc since: "1.5.0"
   @spec replace!(map, key, value) :: map
   def replace!(map, key, value) do
     :maps.update(key, value, map)
@@ -413,8 +409,9 @@ defmodule Map do
   Gets the value for a specific `key` in `map`.
 
   If `key` is present in `map` with value `value`, then `value` is
-  returned. Otherwise, `default` is returned (which is `nil` unless
-  specified otherwise).
+  returned. Otherwise, `default` is returned.
+
+  If `default` is not provided, `nil` is used.
 
   ## Examples
 
@@ -510,7 +507,6 @@ defmodule Map do
       iex> Map.delete(%{b: 2}, :a)
       %{b: 2}
 
-  Inlined by the compiler.
   """
   @spec delete(map, key) :: map
   def delete(map, key), do: :maps.remove(key, map)
@@ -829,7 +825,7 @@ defmodule Map do
       {1, %{}}
 
   """
-  @spec get_and_update!(map, key, (value -> {get, value} | :pop)) :: {get, map} | no_return
+  @spec get_and_update!(map, key, (value -> {get, value} | :pop)) :: {get, map}
         when get: term
   def get_and_update!(map, key, fun) when is_function(fun, 1) do
     value = fetch!(map, key)
@@ -897,7 +893,6 @@ defmodule Map do
   def equal?(term, other), do: :erlang.error({:badmap, term}, [term, other])
 
   @doc false
-  # TODO: Remove on 2.0
   @deprecated "Use Kernel.map_size/1 instead"
   def size(map) do
     map_size(map)

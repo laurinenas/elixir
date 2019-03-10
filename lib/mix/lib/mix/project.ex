@@ -107,7 +107,6 @@ defmodule Mix.Project do
   @doc false
   def push(atom, file \\ nil, app \\ nil) when is_atom(atom) do
     file = file || (atom && List.to_string(atom.__info__(:compile)[:source]))
-
     config = Keyword.merge([app: app] ++ default_config(), get_project_config(atom))
 
     case Mix.ProjectStack.push(atom, config, file) do
@@ -168,7 +167,7 @@ defmodule Mix.Project do
   function raises a `Mix.NoProjectError` exception in
   case no project is available.
   """
-  @spec get!() :: module | no_return
+  @spec get!() :: module
   def get! do
     get() || raise Mix.NoProjectError, []
   end
@@ -208,25 +207,22 @@ defmodule Mix.Project do
   """
   @spec config_files() :: [Path.t()]
   def config_files do
-    manifest = Mix.Dep.Lock.manifest()
+    [Mix.Tasks.WillRecompile.manifest() | Mix.ProjectStack.config_files()]
+  end
 
-    configs =
-      case Mix.ProjectStack.peek() do
-        %{config: config, file: file} ->
-          configs =
-            config[:config_path]
-            |> Path.dirname()
-            |> Path.join("**/*.*")
-            |> Path.wildcard()
-            |> Enum.reject(&String.starts_with?(Path.basename(&1), "."))
+  @doc """
+  Returns the latest modification time from config files.
 
-          [file | configs]
-
-        _ ->
-          []
-      end
-
-    [manifest] ++ configs
+  This function is usually used in compilation tasks to trigger
+  a full recompilation whenever such configuration files change.
+  For this reason, the mtime is cached to avoid file system lookups.
+  """
+  @doc since: "1.7.0"
+  @spec config_mtime() :: posix_mtime when posix_mtime: integer()
+  def config_mtime do
+    Mix.Tasks.WillRecompile.manifest()
+    |> Mix.Utils.last_modified()
+    |> max(Mix.ProjectStack.config_mtime())
   end
 
   @doc """
@@ -235,7 +231,7 @@ defmodule Mix.Project do
   When called with no arguments, tells whether the current project is
   an umbrella project.
   """
-  @spec umbrella?() :: boolean
+  @spec umbrella?(keyword) :: boolean
   def umbrella?(config \\ config()) do
     config[:apps_path] != nil
   end
@@ -258,8 +254,8 @@ defmodule Mix.Project do
       #=> %{my_app1: "apps/my_app1", my_app2: "apps/my_app2"}
 
   """
-  @since "1.4.0"
-  @spec apps_paths() :: %{optional(atom) => Path.t()} | nil
+  @doc since: "1.4.0"
+  @spec apps_paths(keyword) :: %{optional(atom) => Path.t()} | nil
   def apps_paths(config \\ config()) do
     if apps_path = config[:apps_path] do
       key = {:apps_paths, Mix.Project.get!()}
@@ -330,7 +326,7 @@ defmodule Mix.Project do
   ## Examples
 
       Mix.Project.in_project(:my_app, "/path/to/my_app", fn module ->
-        "Mix project is: #{inspect module}"
+        "Mix project is: #{inspect(module)}"
       end)
       #=> "Mix project is: MyApp.MixProject"
 
@@ -338,7 +334,7 @@ defmodule Mix.Project do
   @spec in_project(atom, Path.t(), keyword, (module -> result)) :: result when result: term
   def in_project(app, path, post_config \\ [], fun)
 
-  def in_project(app, ".", post_config, fun) do
+  def in_project(app, ".", post_config, fun) when is_atom(app) do
     cached =
       try do
         load_project(app, post_config)
@@ -355,7 +351,7 @@ defmodule Mix.Project do
     end
   end
 
-  def in_project(app, path, post_config, fun) do
+  def in_project(app, path, post_config, fun) when is_atom(app) do
     File.cd!(path, fn ->
       in_project(app, ".", post_config, fun)
     end)
@@ -382,17 +378,59 @@ defmodule Mix.Project do
   @doc """
   Returns the full path of all dependencies as a map.
 
+  ## Options
+
+    * `:depth` - only returns dependencies to the depth level,
+      a depth of 1 will only return top-level dependencies
+    * `:parents` - starts the dependency traversal from the
+      given parents instead of the application root
+
   ## Examples
 
       Mix.Project.deps_paths()
       #=> %{foo: "deps/foo", bar: "custom/path/dep"}
 
   """
-  @spec deps_paths() :: %{optional(atom) => Path.t()}
-  def deps_paths do
-    Enum.reduce(Mix.Dep.cached(), %{}, fn %{app: app, opts: opts}, acc ->
-      Map.put(acc, app, opts[:dest])
-    end)
+  @spec deps_paths(keyword) :: %{optional(atom) => Path.t()}
+  def deps_paths(opts \\ []) do
+    all_deps = Mix.Dep.cached()
+    parents = opts[:parents]
+    depth = opts[:depth]
+
+    if parents || depth do
+      parent_filter = if parents, do: &(&1.app in parents), else: & &1.top_level
+
+      all_deps
+      |> Enum.filter(parent_filter)
+      |> deps_to_paths_map()
+      |> deps_paths_depth(all_deps, 1, depth || :infinity)
+    else
+      deps_to_paths_map(all_deps)
+    end
+  end
+
+  defp deps_to_paths_map(deps) do
+    for %{app: app, opts: opts} <- deps,
+        do: {app, opts[:dest]},
+        into: %{}
+  end
+
+  defp deps_paths_depth(deps, _all_deps, depth, depth) do
+    deps
+  end
+
+  defp deps_paths_depth(parents, all_deps, depth, target_depth) do
+    children =
+      for parent_dep <- all_deps,
+          Map.has_key?(parents, parent_dep.app),
+          %{app: app, opts: opts} <- parent_dep.deps,
+          do: {app, opts[:dest]},
+          into: %{}
+
+    case Map.merge(parents, children) do
+      ^parents -> parents
+      new_parents -> deps_paths_depth(new_parents, all_deps, depth + 1, target_depth)
+    end
   end
 
   @doc """
@@ -400,7 +438,7 @@ defmodule Mix.Project do
 
   Useful when dependencies need to be reloaded due to change of global state.
   """
-  @since "1.7.0"
+  @doc since: "1.7.0"
   @spec clear_deps_cache() :: :ok
   def clear_deps_cache() do
     Mix.Dep.clear_cached()
@@ -434,14 +472,25 @@ defmodule Mix.Project do
   end
 
   defp env_path(config) do
-    build = config[:build_path] || "_build"
+    dir = config[:build_path] || "_build"
+    subdir = build_target() <> build_per_environment(config)
+    Path.expand(dir <> "/" <> subdir)
+  end
 
+  defp build_target do
+    case Mix.target() do
+      :host -> ""
+      other -> "#{other}_"
+    end
+  end
+
+  defp build_per_environment(config) do
     case config[:build_per_environment] do
       true ->
-        Path.expand("#{build}/#{Mix.env()}")
+        Atom.to_string(Mix.env())
 
       false ->
-        Path.expand("#{build}/shared")
+        "shared"
 
       other ->
         Mix.raise("The :build_per_environment option should be a boolean, got: #{inspect(other)}")
@@ -541,6 +590,7 @@ defmodule Mix.Project do
       #=> "/path/to/project/_build/dev/consolidated"
 
   """
+  @spec consolidation_path(keyword) :: Path.t()
   def consolidation_path(config \\ config()) do
     if umbrella?(config) do
       Path.join(build_path(config), "consolidated")
@@ -616,10 +666,7 @@ defmodule Mix.Project do
     end
   end
 
-  @doc """
-  Returns all load paths for the given project.
-  """
-  @spec load_paths(keyword) :: [Path.t()]
+  @deprecated "Use Mix.Project.compile_path/1 instead"
   def load_paths(config \\ config()) do
     if umbrella?(config) do
       []

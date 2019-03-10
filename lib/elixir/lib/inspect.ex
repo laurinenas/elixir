@@ -20,7 +20,7 @@ defprotocol Inspect do
   ## Examples
 
   Many times, inspecting a structure can be implemented in function
-  of existing entities. For example, here is `MapSet`'s `inspect`
+  of existing entities. For example, here is `MapSet`'s `inspect/2`
   implementation:
 
       defimpl Inspect, for: MapSet do
@@ -39,8 +39,8 @@ defprotocol Inspect do
   other string `">"`.
 
   Since regular strings are valid entities in an algebra document,
-  an implementation of inspect may simply return a string,
-  although that will devoid it of any pretty-printing.
+  an implementation of the `Inspect` protocol may simply return a
+  string, although that will devoid it of any pretty-printing.
 
   ## Error handling
 
@@ -48,11 +48,29 @@ defprotocol Inspect do
   Elixir will raise an `ArgumentError` error and will automatically fall back
   to a raw representation for printing the structure.
 
-  You can however access the underlying error by invoking the Inspect
-  implementation directly. For example, to test Inspect.MapSet above,
+  You can however access the underlying error by invoking the `Inspect`
+  implementation directly. For example, to test `Inspect.MapSet` above,
   you can invoke it as:
 
       Inspect.MapSet.inspect(MapSet.new(), %Inspect.Opts{})
+
+  ## Deriving
+
+  The `Inspect` protocol can be derived to hide certain fields from
+  structs, so they don't show up in logs, inspects and similar. This
+  is especially useful for fields containing private information.
+
+  The options `:only` and `:except` can be used with `@derive` to
+  specify which fields should and should not appear in the
+  algebra document:
+
+      defmodule User do
+        @derive {Inspect, only: [:id, :name]}
+        defstruct [:id, :name, :address]
+      end
+
+      inspect(%User{id: 1, name: "Homer", address: "742 Evergreen Terrace"})
+      #=> #User<id: 1, name: "Homer", ...>
 
   """
 
@@ -142,7 +160,7 @@ defimpl Inspect, for: List do
     color("[]", :list, opts)
   end
 
-  # TODO: Remove :char_list and :as_char_lists handling in 2.0
+  # TODO: Remove :char_list and :as_char_lists handling on v2.0
   def inspect(term, opts) do
     %Inspect.Opts{
       charlists: lists,
@@ -372,6 +390,38 @@ defimpl Inspect, for: Reference do
 end
 
 defimpl Inspect, for: Any do
+  defmacro __deriving__(module, struct, options) do
+    fields =
+      struct
+      |> Map.drop([:__exception__, :__struct__])
+      |> Map.keys()
+
+    only = Keyword.get(options, :only, fields)
+    except = Keyword.get(options, :except, [])
+
+    filtered_fields =
+      fields
+      |> Enum.reject(&(&1 in except))
+      |> Enum.filter(&(&1 in only))
+
+    inspect_module =
+      if fields == only and except == [] do
+        quote(do: Inspect.Map)
+      else
+        quote(do: Inspect.Any)
+      end
+
+    quote do
+      defimpl Inspect, for: unquote(module) do
+        def inspect(struct, opts) do
+          map = Map.take(struct, unquote(filtered_fields))
+          name = Identifier.inspect_as_atom(unquote(module))
+          unquote(inspect_module).inspect(map, name, opts)
+        end
+      end
+    end
+  end
+
   def inspect(%module{} = struct, opts) do
     try do
       module.__struct__
@@ -381,11 +431,23 @@ defimpl Inspect, for: Any do
       dunder ->
         if :maps.keys(dunder) == :maps.keys(struct) do
           pruned = :maps.remove(:__exception__, :maps.remove(:__struct__, struct))
-          colorless_opts = %{opts | syntax_colors: []}
-          Inspect.Map.inspect(pruned, Inspect.Atom.inspect(module, colorless_opts), opts)
+          Inspect.Map.inspect(pruned, Identifier.inspect_as_atom(module), opts)
         else
           Inspect.Map.inspect(struct, opts)
         end
     end
+  end
+
+  def inspect(map, name, opts) do
+    # Use the :limit option and an extra element to force
+    # `container_doc/6` to append "...".
+    opts = %{opts | limit: min(opts.limit, map_size(map))}
+    map = :maps.to_list(map) ++ ["..."]
+
+    open = color("#" <> name <> "<", :map, opts)
+    sep = color(",", :map, opts)
+    close = color(">", :map, opts)
+
+    container_doc(open, map, close, opts, &Inspect.List.keyword/2, separator: sep, break: :strict)
   end
 end

@@ -85,7 +85,23 @@ defmodule ModuleTest do
     assert eval_quoted_info() == {ModuleTest, "sample.ex", 13}
   end
 
-  test "retrieves line from macros" do
+  test "resets last definition information on eval" do
+    # This should not emit any warning
+    defmodule LastDefinition do
+      def foo(0), do: 0
+
+      Module.eval_quoted(
+        __ENV__,
+        quote do
+          def bar, do: :ok
+        end
+      )
+
+      def foo(1), do: 1
+    end
+  end
+
+  test "retrieves line from use callsite" do
     assert ModuleTest.ToUse.line() == 40
   end
 
@@ -243,12 +259,24 @@ defmodule ModuleTest do
     assert {:module, :root_defmodule, _, _} = result
   end
 
-  test "defmodule with alias as atom" do
+  test "does not leak alias from atom" do
     defmodule :"Elixir.ModuleTest.RawModule" do
       def hello, do: :world
     end
 
-    assert RawModule.hello() == :world
+    refute __ENV__.aliases[Elixir.ModuleTest]
+    refute __ENV__.aliases[Elixir.RawModule]
+    assert ModuleTest.RawModule.hello() == :world
+  end
+
+  test "does not leak alias from non-atom alias" do
+    defmodule __MODULE__.NonAtomAlias do
+      def hello, do: :world
+    end
+
+    refute __ENV__.aliases[Elixir.ModuleTest]
+    refute __ENV__.aliases[Elixir.NonAtomAlias]
+    assert Elixir.ModuleTest.NonAtomAlias.hello() == :world
   end
 
   test "create" do
@@ -261,7 +289,7 @@ defmodule ModuleTest do
     assert ModuleCreateSample.world()
   end
 
-  test "create with Elixir as a name" do
+  test "create with a reserved module name" do
     contents =
       quote do
         def world, do: true
@@ -286,15 +314,19 @@ defmodule ModuleTest do
     assert ModuleHygiene.test() == [1, 2, 3]
   end
 
-  test "ensure function clauses are ordered" do
+  test "ensure function clauses are sorted (to avoid non-determinism in module vsn)" do
     {_, _, binary, _} =
       defmodule Ordered do
         def foo(:foo), do: :bar
         def baz(:baz), do: :bat
       end
 
-    atoms = :beam_lib.chunks(binary, [:atoms])
-    assert :erlang.phash2(atoms) == 98_328_115
+    {:ok, {ModuleTest.Ordered, [abstract_code: {:raw_abstract_v1, abstract_code}]}} =
+      :beam_lib.chunks(binary, [:abstract_code])
+
+    # We need to traverse functions instead of using :exports as exports are sorted
+    funs = for {:function, _, name, arity, _} <- abstract_code, do: {name, arity}
+    assert funs == [__info__: 1, baz: 1, foo: 1]
   end
 
   test "create with generated true does not emit warnings" do
@@ -310,29 +342,25 @@ defmodule ModuleTest do
     assert ModuleCreateGenerated.world()
   end
 
-  # TODO: Remove this check once we depend only on 20
-  if :erlang.system_info(:otp_release) >= '20' do
-    test "uses the new debug_info chunk" do
-      {:module, ModuleCreateDebugInfo, binary, _} =
-        Module.create(ModuleCreateDebugInfo, :ok, __ENV__)
+  test "uses the debug_info chunk" do
+    {:module, ModuleCreateDebugInfo, binary, _} =
+      Module.create(ModuleCreateDebugInfo, :ok, __ENV__)
 
-      {:ok, {_, [debug_info: {:debug_info_v1, backend, data}]}} =
-        :beam_lib.chunks(binary, [:debug_info])
+    {:ok, {_, [debug_info: {:debug_info_v1, backend, data}]}} =
+      :beam_lib.chunks(binary, [:debug_info])
 
-      {:ok, map} = backend.debug_info(:elixir_v1, ModuleCreateDebugInfo, data, [])
-      assert map.module == ModuleCreateDebugInfo
-    end
+    {:ok, map} = backend.debug_info(:elixir_v1, ModuleCreateDebugInfo, data, [])
+    assert map.module == ModuleCreateDebugInfo
+  end
 
-    test "uses the new debug_info chunk even if debug_info is set to false" do
-      {:module, ModuleCreateNoDebugInfo, binary, _} =
-        Module.create(ModuleCreateNoDebugInfo, quote(do: @compile({:debug_info, false})), __ENV__)
+  test "uses the debug_info chunk even if debug_info is set to false" do
+    {:module, ModuleCreateNoDebugInfo, binary, _} =
+      Module.create(ModuleCreateNoDebugInfo, quote(do: @compile({:debug_info, false})), __ENV__)
 
-      {:ok, {_, [debug_info: {:debug_info_v1, backend, data}]}} =
-        :beam_lib.chunks(binary, [:debug_info])
+    {:ok, {_, [debug_info: {:debug_info_v1, backend, data}]}} =
+      :beam_lib.chunks(binary, [:debug_info])
 
-      assert backend.debug_info(:elixir_v1, ModuleCreateNoDebugInfo, data, []) ==
-               {:error, :missing}
-    end
+    assert backend.debug_info(:elixir_v1, ModuleCreateNoDebugInfo, data, []) == {:error, :missing}
   end
 
   test "no function in module body" do
@@ -373,6 +401,12 @@ defmodule ModuleTest do
       assert Module.definitions_in(__MODULE__) == [foo: 3]
       assert Module.definitions_in(__MODULE__, :def) == [foo: 3]
       assert Module.definitions_in(__MODULE__, :defp) == []
+
+      defoverridable foo: 3
+
+      assert Module.definitions_in(__MODULE__) == []
+      assert Module.definitions_in(__MODULE__, :def) == []
+      assert Module.definitions_in(__MODULE__, :defp) == []
     end
   end
 
@@ -391,5 +425,15 @@ defmodule ModuleTest do
     end
   after
     purge(Foo)
+  end
+
+  test "raise when called with already compiled module" do
+    message =
+      "could not call Module.get_attribute/2 because the module Enum is already compiled. " <>
+        "Use the Module.__info__/1 callback or Code.fetch_docs/1 instead"
+
+    assert_raise ArgumentError, message, fn ->
+      Module.get_attribute(Enum, :moduledoc)
+    end
   end
 end

@@ -29,7 +29,7 @@ defmodule Mix.Tasks.Run do
   needed, unless you pass `--no-compile`.
 
   If for some reason the application needs to be configured before it is
-  started, the `--no-start` flag can be used and you are then responsible
+  started, the `--no-start` option can be used and you are then responsible
   for starting all applications by using functions such as
   `Application.ensure_all_started/1`. For more information about the
   application life-cycle and dynamically configuring applications, see
@@ -40,11 +40,14 @@ defmodule Mix.Tasks.Run do
 
       elixir --sname hello -S mix run --no-halt
 
+  This task is automatically reenabled, so it can be called multiple times
+  with different arguments.
+
   ## Command-line options
 
     * `--config`, `-c`  - loads the given configuration file
     * `--eval`, `-e` - evaluates the given code
-    * `--require`, `-r` - requires pattern before running the command
+    * `--require`, `-r` - executes the given pattern/file
     * `--parallel`, `-p` - makes all requires parallel
     * `--preload-modules` - preloads all modules defined in applications
     * `--no-compile` - does not compile even if files require compilation
@@ -57,6 +60,7 @@ defmodule Mix.Tasks.Run do
 
   """
 
+  @impl true
   def run(args) do
     {opts, head} =
       OptionParser.parse_head!(
@@ -81,6 +85,7 @@ defmodule Mix.Tasks.Run do
 
     run(args, opts, head, &Code.eval_string/1, &Code.require_file/1)
     unless Keyword.get(opts, :halt, true), do: Process.sleep(:infinity)
+    Mix.Task.reenable("run")
     :ok
   end
 
@@ -93,7 +98,6 @@ defmodule Mix.Tasks.Run do
           (String.t() -> term())
         ) :: :ok
   def run(args, opts, head, expr_evaluator, file_evaluator) do
-    # TODO: Remove on v2.0
     opts =
       Enum.flat_map(opts, fn
         {:parallel_require, value} ->
@@ -131,7 +135,7 @@ defmodule Mix.Tasks.Run do
         Mix.raise(
           "Cannot execute \"mix run\" without a Mix.Project, " <>
             "please ensure you are running Mix in a directory with a mix.exs file " <>
-            "or pass the --no-mix-exs flag"
+            "or pass the --no-mix-exs option"
         )
     end
 

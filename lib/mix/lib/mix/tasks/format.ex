@@ -50,24 +50,24 @@ defmodule Mix.Tasks.Format do
 
   ## Task-specific options
 
-    * `--check-formatted` - check that the file is already formatted.
+    * `--check-formatted` - checks that the file is already formatted.
       This is useful in pre-commit hooks and CI scripts if you want to
       reject contributions with unformatted code. However keep in mind
       that the formatted output may differ between Elixir versions as
       improvements and fixes are applied to the formatter.
 
-    * `--check-equivalent` - check if the files after formatting have the
-      same AST as before formatting. If the ASTs are not equivalent,
-      it is a bug in the code formatter. This option is recommended if you
-      are automatically formatting files.
+    * `--check-equivalent` - checks if the files after formatting have the
+      same AST as before formatting. If the ASTs are not equivalent, it is
+      a bug in the code formatter. This option is useful if you suspect you
+      have ran into a formatter bug and you would like confirmation.
 
-    * `--dry-run` - do not save files after formatting.
+    * `--dry-run` - does not save files after formatting.
 
     * `--dot-formatter` - path to the file with formatter configuration.
       Defaults to `.formatter.exs` if one is available. See the "`.formatter.exs`"
       section for more information.
 
-  If any of the `--check-*` flags are given and a check fails, the formatted
+  If any of the `--check-*` options are given and a check fails, the formatted
   contents won't be written to disk nor printed to standard output.
 
   ## When to format code
@@ -135,6 +135,7 @@ defmodule Mix.Tasks.Format do
   @manifest "cached_dot_formatter"
   @manifest_vsn 1
 
+  @impl true
   def run(args) do
     {opts, args} = OptionParser.parse!(args, strict: @switches)
     {dot_formatter, formatter_opts} = eval_dot_formatter(opts)
@@ -210,11 +211,11 @@ defmodule Mix.Tasks.Format do
     end
   end
 
-  def read_manifest(manifest) do
+  defp read_manifest(manifest) do
     with {:ok, binary} <- File.read(manifest),
          {:ok, {@manifest_vsn, entry, sources}} <- safe_binary_to_term(binary),
          expanded_sources = Enum.flat_map(sources, &Path.wildcard(&1, match_dot: true)),
-         false <- Mix.Utils.stale?(Mix.Project.config_files() ++ expanded_sources, [manifest]) do
+         false <- Mix.Utils.stale?([Mix.Project.config_mtime() | expanded_sources], [manifest]) do
       {entry, sources}
     else
       _ -> nil
@@ -289,7 +290,7 @@ defmodule Mix.Tasks.Format do
         else
           Mix.raise(
             "Unavailable dependency #{inspect(dep)} given to :import_deps in the formatter configuration. " <>
-              "The dependency cannot be found in the filesystem, please run mix deps.get and try again"
+              "The dependency cannot be found in the file system, please run \"mix deps.get\" and try again"
           )
         end
 
@@ -325,7 +326,7 @@ defmodule Mix.Tasks.Format do
 
     dot_formatter
     |> expand_dot_inputs([], formatter_opts_and_subs, %{})
-    |> Enum.uniq()
+    |> Enum.map(fn {file, {_dot_formatter, formatter_opts}} -> {file, formatter_opts} end)
   end
 
   defp expand_args(files_and_patterns, _dot_formatter, {formatter_opts, subs}) do
@@ -360,13 +361,33 @@ defmodule Mix.Tasks.Format do
     map =
       for input <- List.wrap(formatter_opts[:inputs]),
           file <- Path.wildcard(Path.join(prefix ++ [input]), match_dot: true),
-          do: {file, formatter_opts},
+          do: {expand_relative_to_cwd(file), {dot_formatter, formatter_opts}},
           into: %{}
 
-    Enum.reduce(subs, Map.merge(acc, map), fn {sub, formatter_opts_and_subs}, acc ->
+    acc =
+      Map.merge(acc, map, fn file, {dot_formatter1, _}, {dot_formatter2, formatter_opts} ->
+        Mix.shell().error(
+          "Both #{dot_formatter1} and #{dot_formatter2} specify the file " <>
+            "#{Path.relative_to_cwd(file)} in their :inputs option. To resolve the " <>
+            "conflict, the configuration in #{dot_formatter1} will be ignored. " <>
+            "Please change the list of :inputs in one of the formatter files so only " <>
+            "one of them matches #{Path.relative_to_cwd(file)}"
+        )
+
+        {dot_formatter2, formatter_opts}
+      end)
+
+    Enum.reduce(subs, acc, fn {sub, formatter_opts_and_subs}, acc ->
       sub_formatter = Path.join(sub, ".formatter.exs")
       expand_dot_inputs(sub_formatter, [sub], formatter_opts_and_subs, acc)
     end)
+  end
+
+  defp expand_relative_to_cwd(path) do
+    case File.cwd() do
+      {:ok, cwd} -> Path.expand(path, cwd)
+      _ -> path
+    end
   end
 
   defp find_formatter_opts_for_file(split, {formatter_opts, subs}) do
@@ -382,7 +403,7 @@ defmodule Mix.Tasks.Format do
   end
 
   defp stdin_or_wildcard("-"), do: [:stdin]
-  defp stdin_or_wildcard(path), do: Path.wildcard(path, match_dot: true)
+  defp stdin_or_wildcard(path), do: path |> Path.expand() |> Path.wildcard(match_dot: true)
 
   defp read_file(:stdin) do
     {IO.stream(:stdio, :line) |> Enum.to_list() |> IO.iodata_to_binary(), file: "stdin"}
@@ -447,7 +468,7 @@ defmodule Mix.Tasks.Format do
   end
 
   defp check!({[{:exit, file, exception, stacktrace} | _], _not_equivalent, _not_formatted}) do
-    Mix.shell().error("mix format failed for file: #{file}")
+    Mix.shell().error("mix format failed for file: #{Path.relative_to_cwd(file)}")
     reraise exception, stacktrace
   end
 

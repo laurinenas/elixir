@@ -1,10 +1,11 @@
-REBAR ?= "$(CURDIR)/rebar"
 PREFIX ?= /usr/local
 SHARE_PREFIX ?= $(PREFIX)/share
-CANONICAL := master/
-ELIXIRC := bin/elixirc --verbose --ignore-module-conflict
-ERLC := erlc -I lib/elixir/include
+MAN_PREFIX ?= $(SHARE_PREFIX)/man
+CANONICAL := master/ # master/ or vMAJOR.MINOR/
+ELIXIRC := bin/elixirc --verbose --ignore-module-conflict $(ELIXIRC_OPTS)
+ERLC := erlc -I lib/elixir/include $(ERLC_OPTS)
 ERL := erl -I lib/elixir/include -noshell -pa lib/elixir/ebin
+GENERATE_APP := $(CURDIR)/lib/elixir/generate_app.escript
 VERSION := $(strip $(shell cat VERSION))
 Q := @
 LIBDIR := lib
@@ -15,16 +16,18 @@ INSTALL_DATA = $(INSTALL) -m644
 INSTALL_PROGRAM = $(INSTALL) -m755
 GIT_REVISION = $(strip $(shell git rev-parse HEAD 2> /dev/null ))
 GIT_TAG = $(strip $(shell head="$(call GIT_REVISION)"; git tag --points-at $$head 2> /dev/null | tail -1) )
+SOURCE_DATE_EPOCH_PATH = lib/elixir/tmp/ebin_reproducible
+SOURCE_DATE_EPOCH_FILE = $(SOURCE_DATE_EPOCH_PATH)/SOURCE_DATE_EPOCH
 
-.PHONY: install compile erlang elixir build_plt clean_plt dialyze test clean clean_residual_files install_man clean_man docs Docs.zip Precompiled.zip zips
+.PHONY: install compile erlang elixir unicode app build_plt clean_plt dialyze test check_reproducible clean clean_residual_files install_man clean_man docs Docs.zip Precompiled.zip zips
 .NOTPARALLEL: compile
 
 #==> Functions
 
 define CHECK_ERLANG_RELEASE
-	erl -noshell -eval '{V,_} = string:to_integer(erlang:system_info(otp_release)), io:fwrite("~s", [is_integer(V) and (V >= 19)])' -s erlang halt | grep -q '^true'; \
+	erl -noshell -eval '{V,_} = string:to_integer(erlang:system_info(otp_release)), io:fwrite("~s", [is_integer(V) and (V >= 20)])' -s erlang halt | grep -q '^true'; \
 		if [ $$? != 0 ]; then \
-		  echo "At least Erlang/OTP 19.0 is required to build Elixir"; \
+		  echo "At least Erlang/OTP 20.0 is required to build Elixir"; \
 		  exit 1; \
 		fi
 endef
@@ -33,11 +36,7 @@ define APP_TEMPLATE
 $(1): lib/$(1)/ebin/Elixir.$(2).beam lib/$(1)/ebin/$(1).app
 
 lib/$(1)/ebin/$(1).app: lib/$(1)/mix.exs
-	$(Q) mkdir -p lib/$(1)/_build/shared/lib/$(1)
-	$(Q) cp -R lib/$(1)/ebin lib/$(1)/_build/shared/lib/$(1)/
-	$(Q) cd lib/$(1) && ../../bin/elixir -e 'Mix.start(:permanent, [])' -r mix.exs -e 'Mix.Task.run("compile.app")'
-	$(Q) cp lib/$(1)/_build/shared/lib/$(1)/ebin/$(1).app lib/$(1)/ebin/$(1).app
-	$(Q) rm -rf lib/$(1)/_build
+	$(Q) cd lib/$(1) && ../../bin/elixir -e 'Mix.start(:permanent, [])' -r mix.exs -e 'Mix.Task.run("compile.app", ~w[--compile-path ebin])'
 
 lib/$(1)/ebin/Elixir.$(2).beam: $(wildcard lib/$(1)/lib/*.ex) $(wildcard lib/$(1)/lib/*/*.ex) $(wildcard lib/$(1)/lib/*/*/*.ex)
 	@ echo "==> $(1) (compile)"
@@ -45,23 +44,39 @@ lib/$(1)/ebin/Elixir.$(2).beam: $(wildcard lib/$(1)/lib/*.ex) $(wildcard lib/$(1
 	$(Q) cd lib/$(1) && ../../$$(ELIXIRC) "lib/**/*.ex" -o ebin
 
 test_$(1): compile $(1)
-	@ echo "==> $(1) (exunit)"
+	@ echo "==> $(1) (ex_unit)"
 	$(Q) cd lib/$(1) && ../../bin/elixir -r "test/test_helper.exs" -pr "test/**/*_test.exs";
+endef
+
+define WRITE_SOURCE_DATE_EPOCH
+$(shell mkdir -p $(SOURCE_DATE_EPOCH_PATH) && bin/elixir -e \
+  'IO.puts System.build_info()[:date] \
+   |> DateTime.from_iso8601() \
+   |> elem(1) \
+   |> DateTime.to_unix()' > $(SOURCE_DATE_EPOCH_FILE))
+endef
+
+define READ_SOURCE_DATE_EPOCH
+$(strip $(shell cat $(SOURCE_DATE_EPOCH_FILE)))
 endef
 
 #==> Compilation tasks
 
 APP := lib/elixir/ebin/elixir.app
-KERNEL:=lib/elixir/ebin/Elixir.Kernel.beam
-UNICODE:=lib/elixir/ebin/Elixir.String.Unicode.beam
+PARSER := lib/elixir/src/elixir_parser.erl
+KERNEL := lib/elixir/ebin/Elixir.Kernel.beam
+UNICODE := lib/elixir/ebin/Elixir.String.Unicode.beam
 
 default: compile
 
-compile: erlang elixir
+compile: erlang $(APP) elixir
 
-erlang:
+erlang: $(PARSER)
 	$(Q) if [ ! -f $(APP) ]; then $(call CHECK_ERLANG_RELEASE); fi
-	$(Q) cd lib/elixir && $(REBAR) compile
+	$(Q) cd lib/elixir && mkdir -p ebin && erl -make
+
+$(PARSER): lib/elixir/src/elixir_parser.yrl
+	$(Q) erlc -o $@ +'{verbose,true}' +'{report,true}' $<
 
 # Since Mix depends on EEx and EEx depends on Mix,
 # we first compile EEx without the .app file,
@@ -78,8 +93,11 @@ $(KERNEL): lib/elixir/lib/*.ex lib/elixir/lib/*/*.ex lib/elixir/lib/*/*/*.ex
 	$(Q) cd lib/elixir && ../../$(ELIXIRC) "lib/kernel.ex" -o ebin;
 	$(Q) cd lib/elixir && ../../$(ELIXIRC) "lib/**/*.ex" -o ebin;
 	$(Q) $(MAKE) unicode
-	$(Q) rm -f lib/elixir/ebin/elixir.app
-	$(Q) cd lib/elixir && $(REBAR) compile
+	$(Q) $(MAKE) app
+
+app: $(APP)
+$(APP): lib/elixir/src/elixir.app.src lib/elixir/ebin VERSION $(GENERATE_APP)
+	$(Q) $(GENERATE_APP) $< $@ $(VERSION)
 
 unicode: $(UNICODE)
 $(UNICODE): lib/elixir/unicode/*
@@ -109,10 +127,33 @@ install: compile
 	done
 	$(MAKE) install_man
 
+check_reproducible: compile
+	$(Q) echo "==> Checking for reproducible builds..."
+	$(Q) rm -rf lib/*/tmp/ebin_reproducible/
+	$(call WRITE_SOURCE_DATE_EPOCH)
+	$(Q) mkdir -p lib/elixir/tmp/ebin_reproducible/ \
+	              lib/eex/tmp/ebin_reproducible/ \
+	              lib/iex/tmp/ebin_reproducible/ \
+	              lib/logger/tmp/ebin_reproducible/ \
+	              lib/mix/tmp/ebin_reproducible/
+	$(Q) mv lib/elixir/ebin/* lib/elixir/tmp/ebin_reproducible/
+	$(Q) mv lib/eex/ebin/* lib/eex/tmp/ebin_reproducible/
+	$(Q) mv lib/iex/ebin/* lib/iex/tmp/ebin_reproducible/
+	$(Q) mv lib/logger/ebin/* lib/logger/tmp/ebin_reproducible/
+	$(Q) mv lib/mix/ebin/* lib/mix/tmp/ebin_reproducible/
+	SOURCE_DATE_EPOCH=$(call READ_SOURCE_DATE_EPOCH) $(MAKE) compile
+	$(Q) echo "Diffing..."
+	$(Q) diff -r lib/elixir/ebin/ lib/elixir/tmp/ebin_reproducible/
+	$(Q) diff -r lib/eex/ebin/ lib/eex/tmp/ebin_reproducible/
+	$(Q) diff -r lib/iex/ebin/ lib/iex/tmp/ebin_reproducible/
+	$(Q) diff -r lib/logger/ebin/ lib/logger/tmp/ebin_reproducible/
+	$(Q) diff -r lib/mix/ebin/ lib/mix/tmp/ebin_reproducible/
+	$(Q) echo "Builds are reproducible"
+
 clean:
-	cd lib/elixir && $(REBAR) clean
 	rm -rf ebin
 	rm -rf lib/*/ebin
+	rm -rf $(PARSER)
 	$(Q) $(MAKE) clean_residual_files
 
 clean_elixir:
@@ -134,7 +175,7 @@ clean_residual_files:
 LOGO_PATH = $(shell test -f ../docs/logo.png && echo "--logo ../docs/logo.png")
 SOURCE_REF = $(shell tag="$(call GIT_TAG)" revision="$(call GIT_REVISION)"; echo "$${tag:-$$revision}\c")
 DOCS_FORMAT = html
-COMPILE_DOCS = bin/elixir ../ex_doc/bin/ex_doc "$(1)" "$(VERSION)" "lib/$(2)/ebin" -m "$(3)" -u "https://github.com/elixir-lang/elixir" --source-ref "$(call SOURCE_REF)" $(call LOGO_PATH) -o doc/$(2) -n https://hexdocs.pm/$(2)/$(CANONICAL) -p http://elixir-lang.org/docs.html -f "$(DOCS_FORMAT)" $(4)
+COMPILE_DOCS = bin/elixir ../ex_doc/bin/ex_doc "$(1)" "$(VERSION)" "lib/$(2)/ebin" -m "$(3)" -u "https://github.com/elixir-lang/elixir" --source-ref "$(call SOURCE_REF)" $(call LOGO_PATH) -o doc/$(2) -n https://hexdocs.pm/$(2)/$(CANONICAL) -p https://elixir-lang.org/docs.html -f "$(DOCS_FORMAT)" $(4)
 
 docs: compile ../ex_doc/bin/ex_doc docs_elixir docs_eex docs_mix docs_iex docs_ex_unit docs_logger
 
@@ -185,6 +226,14 @@ Precompiled.zip: build_man compile
 	@ echo "Precompiled file created $(CURDIR)/Precompiled-v$(VERSION).zip"
 
 zips: Precompiled.zip Docs.zip
+	@ echo ""
+	@ echo "## Checksums"
+	@ echo ""
+	@ shasum -a 1 < Precompiled-v$(VERSION).zip | sed -e "s/-//" | xargs echo "  * Precompiled.zip SHA1:"
+	@ shasum -a 512 < Precompiled-v$(VERSION).zip | sed -e "s/-//" | xargs echo "  * Precompiled.zip SHA512:"
+	@ shasum -a 1 < Docs-v$(VERSION).zip | sed -e "s/-//" | xargs echo "  * Docs.zip SHA1:"
+	@ shasum -a 512 < Docs-v$(VERSION).zip | sed -e "s/-//" | xargs echo "  * Docs.zip SHA512:"
+	@ echo ""
 
 #==> Test tasks
 
@@ -215,7 +264,7 @@ $(TEST_EBIN)/%.beam: $(TEST_ERL)/%.erl
 test_elixir: test_stdlib test_ex_unit test_logger test_mix test_eex test_iex
 
 test_stdlib: compile
-	@ echo "==> elixir (exunit)"
+	@ echo "==> elixir (ex_unit)"
 	$(Q) exec epmd & exit
 	$(Q) if [ "$(OS)" = "Windows_NT" ]; then \
 		cd lib/elixir && cmd //C call ../../bin/elixir.bat -r "test/elixir/test_helper.exs" -pr "test/elixir/**/*_test.exs"; \
@@ -239,7 +288,7 @@ build_plt: clean_plt $(PLT)
 
 dialyze: compile $(PLT)
 	@ echo "==> Dialyzing Elixir..."
-	$(Q) dialyzer --plt $(PLT) $(DIALYZER_OPTS) lib/*/ebin
+	$(Q) dialyzer -pa lib/elixir/ebin --plt $(PLT) $(DIALYZER_OPTS) lib/*/ebin
 
 #==> Man page tasks
 
@@ -264,9 +313,9 @@ clean_man:
 	rm -f man/iex.1.bak
 
 install_man: build_man
-	$(Q) mkdir -p $(DESTDIR)$(SHARE_PREFIX)/man/man1
-	$(Q) $(INSTALL_DATA) man/elixir.1  $(DESTDIR)$(SHARE_PREFIX)/man/man1
-	$(Q) $(INSTALL_DATA) man/elixirc.1 $(DESTDIR)$(SHARE_PREFIX)/man/man1
-	$(Q) $(INSTALL_DATA) man/iex.1     $(DESTDIR)$(SHARE_PREFIX)/man/man1
-	$(Q) $(INSTALL_DATA) man/mix.1     $(DESTDIR)$(SHARE_PREFIX)/man/man1
+	$(Q) mkdir -p $(DESTDIR)$(MAN_PREFIX)/man1
+	$(Q) $(INSTALL_DATA) man/elixir.1  $(DESTDIR)$(MAN_PREFIX)/man1
+	$(Q) $(INSTALL_DATA) man/elixirc.1 $(DESTDIR)$(MAN_PREFIX)/man1
+	$(Q) $(INSTALL_DATA) man/iex.1     $(DESTDIR)$(MAN_PREFIX)/man1
+	$(Q) $(INSTALL_DATA) man/mix.1     $(DESTDIR)$(MAN_PREFIX)/man1
 	$(MAKE) clean_man

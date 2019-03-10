@@ -41,9 +41,7 @@ defmodule Mix.Tasks.Compile.Protocols do
 
   """
 
-  @doc """
-  Runs this task.
-  """
+  @impl true
   def run(args) do
     config = Mix.Project.config()
     Mix.Task.run("compile")
@@ -54,7 +52,7 @@ defmodule Mix.Tasks.Compile.Protocols do
     protocols_and_impls = protocols_and_impls(config)
 
     cond do
-      opts[:force] || Mix.Utils.stale?(Mix.Project.config_files(), [manifest]) ->
+      opts[:force] || Mix.Utils.stale?([Mix.Project.config_mtime()], [manifest]) ->
         clean()
         paths = consolidation_paths()
 
@@ -72,18 +70,15 @@ defmodule Mix.Tasks.Compile.Protocols do
     end
   end
 
-  @doc """
-  Cleans up consolidated protocols.
-  """
+  @impl true
   def clean do
     File.rm(manifest())
     File.rm_rf(Mix.Project.consolidation_path())
   end
 
-  @doc """
-  Returns protocols manifests.
-  """
+  @impl true
   def manifests, do: [manifest()]
+
   defp manifest, do: Path.join(Mix.Project.manifest_path(), @manifest)
 
   @doc """
@@ -145,10 +140,10 @@ defmodule Mix.Tasks.Compile.Protocols do
 
     case Protocol.consolidate(protocol, impls) do
       {:ok, binary} ->
-        File.write!(Path.join(output, "#{protocol}.beam"), binary)
+        File.write!(Path.join(output, "#{Atom.to_string(protocol)}.beam"), binary)
 
         if opts[:verbose] do
-          Mix.shell().info("Consolidated #{inspect(protocol)}")
+          Mix.shell().info("Consolidated #{inspect_protocol(protocol)}")
         end
 
       # If we remove a dependency and we have implemented one of its
@@ -161,9 +156,15 @@ defmodule Mix.Tasks.Compile.Protocols do
         remove_consolidated(protocol, output)
 
         if opts[:verbose] do
-          Mix.shell().info("Unavailable #{inspect(protocol)}")
+          Mix.shell().info("Unavailable #{inspect_protocol(protocol)}")
         end
     end
+  end
+
+  # We cannot use the inspect protocol while consolidating
+  # since inspect may not be available.
+  defp inspect_protocol(protocol) do
+    Code.Identifier.inspect_as_atom(protocol)
   end
 
   defp reload(module) do
@@ -227,6 +228,6 @@ defmodule Mix.Tasks.Compile.Protocols do
   end
 
   defp remove_consolidated(protocol, output) do
-    File.rm(Path.join(output, "#{protocol}.beam"))
+    File.rm(Path.join(output, "#{Atom.to_string(protocol)}.beam"))
   end
 end

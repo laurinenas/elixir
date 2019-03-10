@@ -31,21 +31,22 @@ defmodule StringIO do
 
   ## Examples
 
-    iex> StringIO.open("foo", [], fn(pid) ->
-    ...>   input = IO.gets(pid, ">")
-    ...>   IO.write(pid, "The input was #{input}")
-    ...>   StringIO.contents(pid)
-    ...> end)
-    {:ok, {"", "The input was foo"}}
+      iex> StringIO.open("foo", [], fn pid ->
+      ...>   input = IO.gets(pid, ">")
+      ...>   IO.write(pid, "The input was #{input}")
+      ...>   StringIO.contents(pid)
+      ...> end)
+      {:ok, {"", "The input was foo"}}
 
-    iex> StringIO.open("foo", [capture_prompt: true], fn(pid) ->
-    ...>   input = IO.gets(pid, ">")
-    ...>   IO.write(pid, "The input was #{input}")
-    ...>   StringIO.contents(pid)
-    ...> end)
-    {:ok, {"", ">The input was foo"}}
+      iex> StringIO.open("foo", [capture_prompt: true], fn pid ->
+      ...>   input = IO.gets(pid, ">")
+      ...>   IO.write(pid, "The input was #{input}")
+      ...>   StringIO.contents(pid)
+      ...> end)
+      {:ok, {"", ">The input was foo"}}
 
   """
+  @doc since: "1.7.0"
   @spec open(binary, keyword, (pid -> res)) :: {:ok, res} when res: var
   def open(string, options, function)
       when is_binary(string) and is_list(options) and is_function(function, 1) do
@@ -90,7 +91,7 @@ defmodule StringIO do
       iex> StringIO.contents(pid)
       {"", ">"}
 
-      iex> StringIO.open("foo", fn(pid) ->
+      iex> StringIO.open("foo", fn pid ->
       ...>   input = IO.gets(pid, ">")
       ...>   IO.write(pid, "The input was #{input}")
       ...>   StringIO.contents(pid)
@@ -100,7 +101,7 @@ defmodule StringIO do
   """
   @spec open(binary, keyword) :: {:ok, pid}
   @spec open(binary, (pid -> res)) :: {:ok, res} when res: var
-  def open(path, options_or_function \\ [])
+  def open(string, options_or_function \\ [])
 
   def open(string, options_or_function) when is_binary(string) and is_list(options_or_function) do
     GenServer.start_link(__MODULE__, {string, options_or_function}, [])
@@ -177,8 +178,8 @@ defmodule StringIO do
     {:noreply, state}
   end
 
-  def handle_info(message, state) do
-    super(message, state)
+  def handle_info(_message, state) do
+    {:noreply, state}
   end
 
   @impl true
@@ -192,10 +193,6 @@ defmodule StringIO do
 
   def handle_call(:close, _from, %{input: input, output: output} = state) do
     {:stop, :normal, {:ok, {input, output}}, state}
-  end
-
-  def handle_call(request, from, state) do
-    super(request, from, state)
   end
 
   defp io_request(from, reply_as, req, state) do
@@ -282,6 +279,8 @@ defmodule StringIO do
       {_, _, _} ->
         {{:error, req}, state}
     end
+  rescue
+    ArgumentError -> {{:error, req}, state}
   end
 
   ## get_chars

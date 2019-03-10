@@ -4,13 +4,13 @@
 -behaviour(application).
 -export([start_cli/0,
   string_to_tokens/4, tokens_to_quoted/3, 'string_to_quoted!'/4,
-  env_for_eval/1, env_for_eval/2, quoted_to_erl/2, quoted_to_erl/3,
+  env_for_eval/1, env_for_eval/2, quoted_to_erl/2,
   eval/2, eval/3, eval_forms/3, eval_forms/4, eval_quoted/3]).
 -include("elixir.hrl").
 -define(system, 'Elixir.System').
 
 %% Top level types
-%% TODO: Remove char_list type by 2.0
+%% TODO: Remove char_list type on v2.0
 -export_type([charlist/0, char_list/0, nonempty_charlist/0, struct/0, as_boolean/1, keyword/0, keyword/1]).
 -type charlist() :: string().
 -type char_list() :: string().
@@ -25,7 +25,7 @@
 -export([start/2, stop/1, config_change/3]).
 
 start(_Type, _Args) ->
-  OTPRelease = parse_otp_release(),
+  _ = parse_otp_release(),
   Encoding = file:native_name_encoding(),
 
   preload_common_modules(),
@@ -33,9 +33,8 @@ start(_Type, _Args) ->
   check_file_encoding(Encoding),
   check_endianness(),
 
-  %% TODO: Remove OTPRelease check once we support OTP 20+.
   Tokenizer = case code:ensure_loaded('Elixir.String.Tokenizer') of
-    {module, Mod} when OTPRelease >= 20 -> Mod;
+    {module, Mod} -> Mod;
     _ -> elixir_tokenizer
   end,
 
@@ -103,21 +102,15 @@ preload_common_modules() ->
   %% the codebase we can avoid code:ensure_loaded/1 checks.
   _ = code:ensure_loaded('Elixir.Kernel'),
   _ = code:ensure_loaded('Elixir.Macro.Env'),
-
-  %% We need to make sure the re module is preloaded to make
-  %% function_exported checks inside Regex.version is fast.
-  %% TODO: Remove this once we support OTP 20+.
-  _ = code:ensure_loaded(re),
-
   ok.
 
 parse_otp_release() ->
   %% Whenever we change this check, we should also change escript.build and Makefile.
   case string:to_integer(erlang:system_info(otp_release)) of
-    {Num, _} when Num >= 19 ->
+    {Num, _} when Num >= 20 ->
       Num;
     _ ->
-      io:format(standard_error, "unsupported Erlang/OTP version, expected Erlang/OTP 19+~n", []),
+      io:format(standard_error, "unsupported Erlang/OTP version, expected Erlang/OTP 20+~n", []),
       erlang:halt(1)
   end.
 
@@ -240,7 +233,7 @@ eval(String, Binding, #{line := Line, file := File} = E) when
 eval_quoted(Tree, Binding, Opts) when is_list(Opts) ->
   eval_quoted(Tree, Binding, env_for_eval(Opts));
 eval_quoted(Tree, Binding, #{line := Line} = E) ->
-  eval_forms(elixir_quote:linify(Line, Tree), Binding, E).
+  eval_forms(elixir_quote:linify(Line, line, Tree), Binding, E).
 
 %% Handle forms evaluation. The main difference to
 %% eval_quoted is that it does not linify the given
@@ -262,7 +255,7 @@ eval_forms(Tree, Binding, Env, Scope) ->
       % Below must be all one line for locations to be the same
       % when the stacktrace is extended to the full stacktrace.
       {value, Value, NewBinding} =
-        try erl_eval:expr(Erl, ParsedBinding, none, none, none) catch Class:Exception -> erlang:raise(Class, Exception, get_stacktrace(erlang:get_stacktrace())) end,
+        try erl_eval:expr(Erl, ParsedBinding, none, none, none) catch ?WITH_STACKTRACE(Class, Exception, Stacktrace) erlang:raise(Class, Exception, get_stacktrace(Stacktrace)) end,
       {Value, elixir_erl_var:dump_binding(NewBinding, NewScope), NewEnv, NewScope}
   end.
 
@@ -273,10 +266,9 @@ get_stacktrace(Stacktrace) ->
   try
     throw(stack)
   catch
-    throw:stack ->
+    ?WITH_STACKTRACE(throw, stack, CurrentStack)
       % Ignore stack item for current function.
-      [_ | CurrentStack] = erlang:get_stacktrace(),
-      merge_stacktrace(Stacktrace, CurrentStack)
+      merge_stacktrace(Stacktrace, tl(CurrentStack))
   end.
 
 % The stacktrace did not include the current stack, re-add it.
@@ -304,9 +296,9 @@ string_to_tokens(String, StartLine, File, Opts) when is_integer(StartLine), is_b
   case elixir_tokenizer:tokenize(String, StartLine, [{file, File} | Opts]) of
     {ok, _Tokens} = Ok ->
       Ok;
-    {error, {Line, {ErrorPrefix, ErrorSuffix}, Token}, _Rest, _SoFar} ->
+    {error, {Line, _, {ErrorPrefix, ErrorSuffix}, Token}, _Rest, _SoFar} ->
       {error, {Line, {to_binary(ErrorPrefix), to_binary(ErrorSuffix)}, to_binary(Token)}};
-    {error, {Line, Error, Token}, _Rest, _SoFar} ->
+    {error, {Line, _, Error, Token}, _Rest, _SoFar} ->
       {error, {Line, to_binary(Error), to_binary(Token)}}
   end.
 
@@ -314,13 +306,24 @@ tokens_to_quoted(Tokens, File, Opts) ->
   handle_parsing_opts(File, Opts),
 
   try elixir_parser:parse(Tokens) of
-    {ok, Forms} -> {ok, Forms};
-    {error, {{Line, _, _}, _, [Error, Token]}} -> {error, {Line, to_binary(Error), to_binary(Token)}};
-    {error, {Line, _, [Error, Token]}} -> {error, {Line, to_binary(Error), to_binary(Token)}}
+    {ok, Forms} ->
+      {ok, Forms};
+    {error, {Line, _, [{ErrorPrefix, ErrorSuffix}, Token]}} ->
+      {error, {parser_line(Line), {to_binary(ErrorPrefix), to_binary(ErrorSuffix)}, to_binary(Token)}};
+    {error, {Line, _, [Error, Token]}} ->
+      {error, {parser_line(Line), to_binary(Error), to_binary(Token)}}
   after
     erase(elixir_parser_file),
     erase(elixir_parser_columns),
     erase(elixir_formatter_metadata)
+  end.
+
+parser_line({Line, _, _}) ->
+  Line;
+parser_line(Meta) ->
+  case lists:keyfind(line, 1, Meta) of
+    {line, L} -> L;
+    false -> 0
   end.
 
 'string_to_quoted!'(String, StartLine, File, Opts) ->
@@ -340,10 +343,8 @@ to_binary(List) when is_list(List) -> elixir_utils:characters_to_binary(List);
 to_binary(Atom) when is_atom(Atom) -> atom_to_binary(Atom, utf8).
 
 handle_parsing_opts(File, Opts) ->
-  FormatterMetadata =
-    lists:keyfind(formatter_metadata, 1, Opts) == {formatter_metadata, true},
-  Columns =
-    lists:keyfind(columns, 1, Opts) == {columns, true},
+  FormatterMetadata = lists:keyfind(formatter_metadata, 1, Opts) == {formatter_metadata, true},
+  Columns = lists:keyfind(columns, 1, Opts) == {columns, true},
   put(elixir_parser_file, File),
   put(elixir_parser_columns, Columns),
   put(elixir_formatter_metadata, FormatterMetadata).

@@ -491,6 +491,32 @@ defmodule Mix.Tasks.XrefTest do
     assert_warnings(files, warning)
   end
 
+  test "warnings: hints exclude deprecated functions" do
+    files = %{
+      "lib/a.ex" => """
+      defmodule A do
+        def to_charlist(a), do: a
+
+        @deprecated "Use String.to_charlist/1 instead"
+        def to_char_list(a), do: a
+
+        def c(a), do: A.to_list(a)
+      end
+      """
+    }
+
+    warning = """
+    warning: function A.to_list/1 is undefined or private. Did you mean one of:
+
+          * to_charlist/1
+
+      lib/a.ex:7
+
+    """
+
+    assert_warnings(files, warning)
+  end
+
   test "warnings: imports" do
     files = %{
       "lib/a.ex" => """
@@ -651,6 +677,26 @@ defmodule Mix.Tasks.XrefTest do
     assert_deprecated(code, warning)
   end
 
+  test "deprecated: reports deprecated structs" do
+    code = """
+    defmodule A do
+      @deprecated "oops"
+      defstruct [:x, :y]
+      def match(%A{}), do: :ok
+      def build(:ok), do: %A{}
+    end
+    """
+
+    warning = """
+    Compiling 2 files (.ex)
+    Generated sample app
+    lib/a.ex:4: A.__struct__/0
+    lib/a.ex:5: A.__struct__/0
+    """
+
+    assert_deprecated(code, warning)
+  end
+
   test "deprecated: aborts if any" do
     code = """
     defmodule A do
@@ -689,6 +735,7 @@ defmodule Mix.Tasks.XrefTest do
       end
     end
 
+    Mix.Project.pop()
     Mix.Project.push(ExcludeSample)
 
     files = %{
@@ -1215,6 +1262,8 @@ defmodule Mix.Tasks.XrefTest do
 
   describe "inside umbrellas" do
     test "generates reports considering siblings" do
+      Mix.Project.pop()
+
       in_fixture("umbrella_dep/deps/umbrella", fn ->
         Mix.Project.in_project(:bar, "apps/bar", fn _ ->
           File.write!("lib/bar.ex", """

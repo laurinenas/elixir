@@ -23,23 +23,6 @@ defmodule SystemTest do
     assert build_info[:build] =~ "compiled with Erlang/OTP"
   end
 
-  test "cwd/0" do
-    assert is_binary(System.cwd())
-    assert is_binary(System.cwd!())
-  end
-
-  if :file.native_name_encoding() == :utf8 do
-    test "cwd/0 with UTF-8" do
-      File.mkdir_p(tmp_path("héllò"))
-
-      File.cd!(tmp_path("héllò"), fn ->
-        assert Path.basename(System.cwd!()) == "héllò"
-      end)
-    after
-      File.rm_rf(tmp_path("héllò"))
-    end
-  end
-
   test "user_home/0" do
     assert is_binary(System.user_home())
     assert is_binary(System.user_home!())
@@ -55,6 +38,10 @@ defmodule SystemTest do
     assert System.endianness() == System.compiled_endianness()
   end
 
+  test "pid/0" do
+    assert is_binary(System.pid())
+  end
+
   test "argv/0" do
     list = elixir('-e "IO.inspect System.argv" -- -o opt arg1 arg2 --long-opt 10')
     {args, _} = Code.eval_string(list, [])
@@ -65,9 +52,17 @@ defmodule SystemTest do
 
   test "*_env/*" do
     assert System.get_env(@test_var) == nil
+    assert System.fetch_env(@test_var) == :error
+
+    message = "could not fetch environment variable #{inspect(@test_var)} because it is not set"
+    assert_raise ArgumentError, message, fn -> System.fetch_env!(@test_var) end
+
     System.put_env(@test_var, "SAMPLE")
+
     assert System.get_env(@test_var) == "SAMPLE"
     assert System.get_env()[@test_var] == "SAMPLE"
+    assert System.fetch_env(@test_var) == {:ok, "SAMPLE"}
+    assert System.fetch_env!(@test_var) == "SAMPLE"
 
     System.delete_env(@test_var)
     assert System.get_env(@test_var) == nil
@@ -105,7 +100,7 @@ defmodule SystemTest do
                  "cmd",
                  ~w[/c echo hello],
                  into: [],
-                 cd: System.cwd!(),
+                 cd: File.cwd!(),
                  env: %{"foo" => "bar", "baz" => nil},
                  arg0: "echo",
                  stderr_to_stdout: true,
@@ -129,10 +124,8 @@ defmodule SystemTest do
         end
 
         assert {"hello\r\n", 0} =
-                 System.cmd(Path.join(System.cwd!(), @echo), ~w[/c echo hello], [{:arg0, "echo"}])
+                 System.cmd(Path.join(File.cwd!(), @echo), ~w[/c echo hello], [{:arg0, "echo"}])
       end)
-    after
-      File.rm_rf!(tmp_path(@echo))
     end
   end
 
@@ -146,7 +139,7 @@ defmodule SystemTest do
     test "cmd/3 (with options)" do
       opts = [
         into: [],
-        cd: System.cwd!(),
+        cd: File.cwd!(),
         env: %{"foo" => "bar", "baz" => nil},
         arg0: "echo",
         stderr_to_stdout: true,
@@ -172,10 +165,8 @@ defmodule SystemTest do
         end
 
         assert {"hello\n", 0} =
-                 System.cmd(Path.join(System.cwd!(), @echo), ["hello"], [{:arg0, "echo"}])
+                 System.cmd(Path.join(File.cwd!(), @echo), ["hello"], [{:arg0, "echo"}])
       end)
-    after
-      File.rm_rf!(tmp_path(@echo))
     end
   end
 

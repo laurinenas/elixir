@@ -2,7 +2,7 @@ defmodule Keyword do
   @moduledoc """
   A set of functions for working with keywords.
 
-  A keyword is a list of two-element tuples where the first
+  A keyword list is a list of two-element tuples where the first
   element of the tuple is an atom and the second element
   can be any value.
 
@@ -20,13 +20,18 @@ defmodule Keyword do
       iex> [{:active, :once}]
       [active: :once]
 
-  The two syntaxes are completely equivalent. When using the colon syntax,
-  the key is always an atom, even when wrapped in quotes:
+  The two syntaxes are completely equivalent. Like atoms, keywords
+  must be composed of Unicode characters such as letters, numbers,
+  underscore, and `@`. If the keyword has a character that does not
+  belong to the category above, such as spaces, you can wrap it in
+  quotes:
 
-      iex> ["exit_on_close": true]
-      [exit_on_close: true]
+      iex> ["exit on close": true]
+      ["exit on close": true]
 
-  This mirrors the quoted atom syntax such as `:"exit_on_close"`.
+  Wrapping a keyword in quotes does not make it a string. Keywords are
+  always atoms. If you use quotes when all characters are a valid part
+  of a keyword without quotes, Elixir will warn.
 
   Note that when keyword lists are passed as the last argument to a function,
   if the short-hand syntax is used then the square brackets around the keyword list
@@ -79,7 +84,7 @@ defmodule Keyword do
 
       iex> Keyword.keyword?([])
       true
-      iex> Keyword.keyword?([a: 1])
+      iex> Keyword.keyword?(a: 1)
       true
       iex> Keyword.keyword?([{Foo, 1}])
       true
@@ -111,7 +116,7 @@ defmodule Keyword do
   def new, do: []
 
   @doc """
-  Creates a keyword from an enumerable.
+  Creates a keyword list from an enumerable.
 
   Duplicated entries are removed, the latest one prevails.
   Unlike `Enum.into(enumerable, [])`, `Keyword.new(enumerable)`
@@ -132,7 +137,7 @@ defmodule Keyword do
   end
 
   @doc """
-  Creates a keyword from an enumerable via the transformation function.
+  Creates a keyword list from an enumerable via the transformation function.
 
   Duplicated entries are removed, the latest one prevails.
   Unlike `Enum.into(enumerable, [], fun)`,
@@ -317,7 +322,7 @@ defmodule Keyword do
       {1, []}
 
   """
-  @spec get_and_update!(t, key, (value -> {get, value})) :: {get, t} | no_return when get: term
+  @spec get_and_update!(t, key, (value -> {get, value})) :: {get, t} when get: term
   def get_and_update!(keywords, key, fun) do
     get_and_update!(keywords, key, fun, [])
   end
@@ -377,7 +382,7 @@ defmodule Keyword do
       ** (KeyError) key :b not found in: [a: 1]
 
   """
-  @spec fetch!(t, key) :: value | no_return
+  @spec fetch!(t, key) :: value
   def fetch!(keywords, key) when is_list(keywords) and is_atom(key) do
     case :lists.keyfind(key, 1, keywords) do
       {^key, value} -> value
@@ -415,9 +420,9 @@ defmodule Keyword do
 
   ## Examples
 
-      iex> Keyword.keys([a: 1, b: 2])
+      iex> Keyword.keys(a: 1, b: 2)
       [:a, :b]
-      iex> Keyword.keys([a: 1, b: 2, a: 3])
+      iex> Keyword.keys(a: 1, b: 2, a: 3)
       [:a, :b, :a]
 
   """
@@ -433,9 +438,9 @@ defmodule Keyword do
 
   ## Examples
 
-      iex> Keyword.values([a: 1, b: 2])
+      iex> Keyword.values(a: 1, b: 2)
       [1, 2]
-      iex> Keyword.values([a: 1, b: 2, a: 3])
+      iex> Keyword.values(a: 1, b: 2, a: 3)
       [1, 2, 3]
 
   """
@@ -646,7 +651,7 @@ defmodule Keyword do
       ** (KeyError) key :b not found in: [a: 1]
 
   """
-  @since "1.5.0"
+  @doc since: "1.5.0"
   @spec replace!(t, key, value) :: t
   def replace!(keywords, key, value) when is_list(keywords) and is_atom(key) do
     case :lists.keyfind(key, 1, keywords) do
@@ -699,8 +704,8 @@ defmodule Keyword do
   @spec merge(t, t) :: t
   def merge(keywords1, keywords2)
 
-  def merge(keywords1, []), do: keywords1
-  def merge([], keywords2), do: keywords2
+  def merge(keywords1, []) when is_list(keywords1), do: keywords1
+  def merge([], keywords2) when is_list(keywords2), do: keywords2
 
   def merge(keywords1, keywords2) when is_list(keywords1) and is_list(keywords2) do
     if keyword?(keywords2) do
@@ -710,13 +715,13 @@ defmodule Keyword do
 
         _ ->
           raise ArgumentError,
-            message: "expected a keyword list as the first argument, got: #{inspect(keywords1)}"
+                "expected a keyword list as the first argument, got: #{inspect(keywords1)}"
       end
 
       :lists.filter(fun, keywords1) ++ keywords2
     else
       raise ArgumentError,
-        message: "expected a keyword list as the second argument, got: #{inspect(keywords2)}"
+            "expected a keyword list as the second argument, got: #{inspect(keywords2)}"
     end
   end
 
@@ -739,17 +744,17 @@ defmodule Keyword do
       [b: 2, a: 4, d: 4]
 
       iex> Keyword.merge([a: 1, b: 2], [a: 3, d: 4, a: 5], fn :a, v1, v2 ->
-      ...>  v1 + v2
+      ...>   v1 + v2
       ...> end)
       [b: 2, a: 4, d: 4, a: 5]
 
       iex> Keyword.merge([a: 1, b: 2, a: 3], [a: 3, d: 4, a: 5], fn :a, v1, v2 ->
-      ...>  v1 + v2
+      ...>   v1 + v2
       ...> end)
       [b: 2, a: 4, d: 4, a: 8]
 
       iex> Keyword.merge([a: 1, b: 2], [:a, :b], fn :a, v1, v2 ->
-      ...>  v1 + v2
+      ...>   v1 + v2
       ...> end)
       ** (ArgumentError) expected a keyword list as the second argument, got: [:a, :b]
 
@@ -761,7 +766,7 @@ defmodule Keyword do
       do_merge(keywords2, [], keywords1, keywords1, fun, keywords2)
     else
       raise ArgumentError,
-        message: "expected a keyword list as the first argument, got: #{inspect(keywords1)}"
+            "expected a keyword list as the first argument, got: #{inspect(keywords1)}"
     end
   end
 
@@ -783,7 +788,7 @@ defmodule Keyword do
 
   defp do_merge(_other, _acc, _rest, _original, _fun, keywords2) do
     raise ArgumentError,
-      message: "expected a keyword list as the second argument, got: #{inspect(keywords2)}"
+          "expected a keyword list as the second argument, got: #{inspect(keywords2)}"
   end
 
   @doc """
@@ -821,7 +826,7 @@ defmodule Keyword do
       ** (KeyError) key :b not found in: [a: 1]
 
   """
-  @spec update!(t, key, (value -> value)) :: t | no_return
+  @spec update!(t, key, (value -> value)) :: t
   def update!(keywords, key, fun) do
     update!(keywords, key, fun, keywords)
   end
@@ -1033,7 +1038,7 @@ defmodule Keyword do
 
   ## Examples
 
-      iex> Keyword.to_list([a: 1])
+      iex> Keyword.to_list(a: 1)
       [a: 1]
 
   """
@@ -1043,7 +1048,6 @@ defmodule Keyword do
   end
 
   @doc false
-  # TODO: Remove on 2.0
   @deprecated "Use Kernel.length/1 instead"
   def size(keyword) do
     length(keyword)

@@ -4,7 +4,7 @@ defmodule Date do
 
   The Date struct contains the fields year, month, day and calendar.
   New dates can be built with the `new/3` function or using the
-  [`~D`](`Kernel.sigil_D/2`) sigil:
+  `~D` (see `Kernel.sigil_D/2`) sigil:
 
       iex> ~D[2000-01-01]
       ~D[2000-01-01]
@@ -25,7 +25,7 @@ defmodule Date do
 
   Developers should avoid creating the Date structs directly
   and instead rely on the functions provided by this module as well
-  as the ones in 3rd party calendar libraries.
+  as the ones in third-party calendar libraries.
 
   ## Comparing dates
 
@@ -53,7 +53,7 @@ defmodule Date do
   @enforce_keys [:year, :month, :day]
   defstruct [:year, :month, :day, calendar: Calendar.ISO]
 
-  @type t :: %Date{
+  @type t :: %__MODULE__{
           year: Calendar.year(),
           month: Calendar.month(),
           day: Calendar.day(),
@@ -87,8 +87,7 @@ defmodule Date do
       -366
 
   """
-
-  @since "1.5.0"
+  @doc since: "1.5.0"
   @spec range(Date.t(), Date.t()) :: Date.Range.t()
   def range(%Date{calendar: calendar} = first, %Date{calendar: calendar} = last) do
     {first_days, _} = to_iso_days(first)
@@ -116,7 +115,7 @@ defmodule Date do
       true
 
   """
-  @since "1.4.0"
+  @doc since: "1.4.0"
   @spec utc_today(Calendar.calendar()) :: t
   def utc_today(calendar \\ Calendar.ISO)
 
@@ -132,7 +131,7 @@ defmodule Date do
   end
 
   @doc """
-  Returns true if the year in the given `date` is a leap year.
+  Returns `true` if the year in the given `date` is a leap year.
 
   ## Examples
 
@@ -148,7 +147,7 @@ defmodule Date do
       true
 
   """
-  @since "1.4.0"
+  @doc since: "1.4.0"
   @spec leap_year?(Calendar.date()) :: boolean()
   def leap_year?(date)
 
@@ -169,7 +168,7 @@ defmodule Date do
       29
 
   """
-  @since "1.4.0"
+  @doc since: "1.4.0"
   @spec days_in_month(Calendar.date()) :: Calendar.day()
   def days_in_month(date)
 
@@ -178,7 +177,7 @@ defmodule Date do
   end
 
   @doc """
-  Returns the number of days in the given `date` month.
+  Returns the number of months in the given `date` year.
 
   ## Example
 
@@ -186,7 +185,7 @@ defmodule Date do
       12
 
   """
-  @since "1.7.0"
+  @doc since: "1.7.0"
   @spec months_in_year(Calendar.date()) :: Calendar.month()
   def months_in_year(date)
 
@@ -249,6 +248,8 @@ defmodule Date do
   Parses the extended "Dates" format described by
   [ISO 8601:2004](https://en.wikipedia.org/wiki/ISO_8601).
 
+  The year parsed by this function is limited to four digits.
+
   ## Examples
 
       iex> Date.from_iso8601("2015-01-23")
@@ -264,24 +265,29 @@ defmodule Date do
   @spec from_iso8601(String.t(), Calendar.calendar()) :: {:ok, t} | {:error, atom}
   def from_iso8601(string, calendar \\ Calendar.ISO)
 
-  def from_iso8601(<<year::4-bytes, ?-, month::2-bytes, ?-, day::2-bytes>>, calendar) do
-    with {year, ""} <- Integer.parse(year),
-         {month, ""} <- Integer.parse(month),
-         {day, ""} <- Integer.parse(day) do
-      with {:ok, date} <- new(year, month, day, Calendar.ISO), do: convert(date, calendar)
-    else
-      _ -> {:error, :invalid_format}
-    end
-  end
-
-  def from_iso8601(<<?-, next, rest::binary>>, calendar) when next != ?- do
-    with {:ok, %{year: year} = date} <- from_iso8601(<<next>> <> rest, calendar) do
+  def from_iso8601(<<?-, rest::binary>>, calendar) do
+    with {:ok, %{year: year} = date} <- raw_from_iso8601(rest, calendar) do
       {:ok, %{date | year: -year}}
     end
   end
 
-  def from_iso8601(<<_::binary>>, _calendar) do
-    {:error, :invalid_format}
+  def from_iso8601(<<rest::binary>>, calendar) do
+    raw_from_iso8601(rest, calendar)
+  end
+
+  [match_date, guard_date, read_date] = Calendar.ISO.__match_date__()
+
+  defp raw_from_iso8601(string, calendar) do
+    with unquote(match_date) <- string,
+         true <- unquote(guard_date) do
+      {year, month, day} = unquote(read_date)
+
+      with {:ok, date} <- new(year, month, day, Calendar.ISO) do
+        convert(date, calendar)
+      end
+    else
+      _ -> {:error, :invalid_format}
+    end
   end
 
   @doc """
@@ -337,7 +343,7 @@ defmodule Date do
 
   def to_iso8601(%{calendar: Calendar.ISO} = date, format) when format in [:basic, :extended] do
     %{year: year, month: month, day: day} = date
-    Calendar.ISO.date_to_iso8601(year, month, day, format)
+    Calendar.ISO.date_to_string(year, month, day, format)
   end
 
   def to_iso8601(%{calendar: _} = date, format) when format in [:basic, :extended] do
@@ -436,7 +442,7 @@ defmodule Date do
       :eq
 
   """
-  @since "1.4.0"
+  @doc since: "1.4.0"
   @spec compare(Calendar.date(), Calendar.date()) :: :lt | :eq | :gt
   def compare(%{calendar: calendar} = date1, %{calendar: calendar} = date2) do
     %{year: year1, month: month1, day: day1} = date1
@@ -461,7 +467,7 @@ defmodule Date do
       cannot compare #{inspect(date1)} with #{inspect(date2)}.
 
       This comparison would be ambiguous as their calendars have incompatible day rollover moments.
-      Specify an exact time of day (using `DateTime`s) to resolve this ambiguity
+      Specify an exact time of day (using DateTime) to resolve this ambiguity
       """
     end
   end
@@ -484,7 +490,7 @@ defmodule Date do
       {:ok, %Date{calendar: Calendar.Holocene, year: 12000, month: 1, day: 1}}
 
   """
-  @since "1.5.0"
+  @doc since: "1.5.0"
   @spec convert(Calendar.date(), Calendar.calendar()) ::
           {:ok, t} | {:error, :incompatible_calendars}
   def convert(%{calendar: calendar, year: year, month: month, day: day}, calendar) do
@@ -518,7 +524,7 @@ defmodule Date do
       %Date{calendar: Calendar.Holocene, year: 12000, month: 1, day: 1}
 
   """
-  @since "1.5.0"
+  @doc since: "1.5.0"
   @spec convert!(Calendar.date(), Calendar.calendar()) :: t
   def convert!(date, calendar) do
     case convert(date, calendar) do
@@ -550,11 +556,22 @@ defmodule Date do
       ~D[-0011-12-30]
 
   """
-  @since "1.5.0"
+  @doc since: "1.5.0"
   @spec add(Calendar.date(), integer()) :: t
+  def add(%{calendar: Calendar.ISO} = date, days) do
+    %{year: year, month: month, day: day} = date
+
+    {year, month, day} =
+      Calendar.ISO.date_to_iso_days(year, month, day)
+      |> Kernel.+(days)
+      |> Calendar.ISO.date_from_iso_days()
+
+    %Date{calendar: Calendar.ISO, year: year, month: month, day: day}
+  end
+
   def add(%{calendar: calendar} = date, days) do
-    {iso_days, fraction} = to_iso_days(date)
-    from_iso_days({iso_days + days, fraction}, calendar)
+    {base_days, fraction} = to_iso_days(date)
+    from_iso_days({base_days + days, fraction}, calendar)
   end
 
   @doc """
@@ -576,7 +593,7 @@ defmodule Date do
       -2
 
   """
-  @since "1.5.0"
+  @doc since: "1.5.0"
   @spec diff(Calendar.date(), Calendar.date()) :: integer
   def diff(%{calendar: Calendar.ISO} = date1, %{calendar: Calendar.ISO} = date2) do
     %{year: year1, month: month1, day: day1} = date1
@@ -634,12 +651,113 @@ defmodule Date do
       3
 
   """
-  @since "1.4.0"
-  @spec day_of_week(Calendar.date()) :: non_neg_integer()
+  @doc since: "1.4.0"
+  @spec day_of_week(Calendar.date()) :: Calendar.day()
   def day_of_week(date)
 
   def day_of_week(%{calendar: calendar, year: year, month: month, day: day}) do
     calendar.day_of_week(year, month, day)
+  end
+
+  @doc """
+  Calculates the day of the year of a given `date`.
+
+  Returns the day of the year as an integer. For the ISO 8601
+  calendar (the default), it is an integer from 1 to 366.
+
+  ## Examples
+
+      iex> Date.day_of_year(~D[2016-01-01])
+      1
+      iex> Date.day_of_year(~D[2016-11-01])
+      306
+      iex> Date.day_of_year(~D[-0015-10-30])
+      303
+      iex> Date.day_of_year(~D[2004-12-31])
+      366
+
+  """
+  @doc since: "1.8.0"
+  @spec day_of_year(Calendar.date()) :: Calendar.day()
+  def day_of_year(date)
+
+  def day_of_year(%{calendar: calendar, year: year, month: month, day: day}) do
+    calendar.day_of_year(year, month, day)
+  end
+
+  @doc """
+  Calculates the quarter of the year of a given `date`.
+
+  Returns the day of the year as an integer. For the ISO 8601
+  calendar (the default), it is an integer from 1 to 4.
+
+  ## Examples
+
+      iex> Date.quarter_of_year(~D[2016-10-31])
+      4
+      iex> Date.quarter_of_year(~D[2016-01-01])
+      1
+      iex> Date.quarter_of_year(~N[2016-04-01 01:23:45])
+      2
+      iex> Date.quarter_of_year(~D[-0015-09-30])
+      3
+
+  """
+  @doc since: "1.8.0"
+  @spec quarter_of_year(Calendar.date()) :: non_neg_integer()
+  def quarter_of_year(date)
+
+  def quarter_of_year(%{calendar: calendar, year: year, month: month, day: day}) do
+    calendar.quarter_of_year(year, month, day)
+  end
+
+  @doc """
+  Calculates the year-of-era and era for a given
+  calendar year.
+
+  Returns a tuple `{year, era}` representing the
+  year within the era and the era number.
+
+  ## Examples
+
+      iex> Date.year_of_era(~D[0001-01-01])
+      {1, 1}
+      iex> Date.year_of_era(~D[0000-12-31])
+      {1, 0}
+      iex> Date.year_of_era(~D[-0001-01-01])
+      {2, 0}
+
+  """
+  @doc since: "1.8.0"
+  @spec year_of_era(Calendar.date()) :: {Calendar.year(), non_neg_integer()}
+  def year_of_era(date)
+
+  def year_of_era(%{calendar: calendar, year: year}) do
+    calendar.year_of_era(year)
+  end
+
+  @doc """
+  Calculates the day-of-era and era for a given
+  calendar `date`.
+
+  Returns a tuple `{day, era}` representing the
+  day within the era and the era number.
+
+  ## Examples
+
+      iex> Date.day_of_era(~D[0001-01-01])
+      {1, 1}
+
+      iex> Date.day_of_era(~D[0000-12-31])
+      {1, 0}
+
+  """
+  @doc since: "1.8.0"
+  @spec day_of_era(Calendar.date()) :: {Calendar.day(), non_neg_integer()}
+  def day_of_era(date)
+
+  def day_of_era(%{calendar: calendar, year: year, month: month, day: day}) do
+    calendar.day_of_era(year, month, day)
   end
 
   ## Helpers

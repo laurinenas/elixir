@@ -53,6 +53,13 @@ defmodule IEx.CLI do
     if tty_works?() do
       :user_drv.start([:"tty_sl -c -e", tty_args()])
     else
+      if get_remsh(:init.get_plain_arguments()) do
+        IO.puts(
+          :stderr,
+          "warning: the --remsh option will be ignored because IEx is running on limited shell"
+        )
+      end
+
       :application.set_env(:stdlib, :shell_prompt_func, {__MODULE__, :prompt})
       :user.start()
       local_start()
@@ -107,7 +114,7 @@ defmodule IEx.CLI do
         )
       end
     else
-      {:erlang, :apply, [local_start_function(), []]}
+      local_start_mfa()
     end
   end
 
@@ -120,8 +127,8 @@ defmodule IEx.CLI do
     receive do: ({:done, ^ref} -> :ok)
   end
 
-  defp local_start_function do
-    &local_start/0
+  defp local_start_mfa do
+    {__MODULE__, :local_start, []}
   end
 
   defp remote_start_mfa do
@@ -141,7 +148,7 @@ defmodule IEx.CLI do
   end
 
   defp options do
-    [dot_iex_path: find_dot_iex(:init.get_plain_arguments())]
+    [dot_iex_path: find_dot_iex(:init.get_plain_arguments()), on_eof: :halt]
   end
 
   defp abort(msg) do

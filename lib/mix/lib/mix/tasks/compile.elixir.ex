@@ -51,9 +51,7 @@ defmodule Mix.Tasks.Compile.Elixir do
     all_warnings: :boolean
   ]
 
-  @doc """
-  Runs this task.
-  """
+  @impl true
   def run(args) do
     {opts, _, _} = OptionParser.parse(args, switches: @switches)
 
@@ -66,22 +64,19 @@ defmodule Mix.Tasks.Compile.Elixir do
     end
 
     manifest = manifest()
-    configs = Mix.Project.config_files() ++ Mix.Tasks.Compile.Erlang.manifests()
+    configs = [Mix.Project.config_mtime() | Mix.Tasks.Compile.Erlang.manifests()]
     force = opts[:force] || Mix.Utils.stale?(configs, [manifest])
 
     opts = Keyword.merge(project[:elixirc_options] || [], opts)
     Mix.Compilers.Elixir.compile(manifest, srcs, dest, [:ex], force, opts)
   end
 
-  @doc """
-  Returns Elixir manifests.
-  """
+  @impl true
   def manifests, do: [manifest()]
+
   defp manifest, do: Path.join(Mix.Project.manifest_path(), @manifest)
 
-  @doc """
-  Cleans up compilation artifacts.
-  """
+  @impl true
   def clean do
     dest = Mix.Project.compile_path()
     Mix.Compilers.Elixir.clean(manifest(), dest)

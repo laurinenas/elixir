@@ -8,6 +8,8 @@ defmodule Mix.Tasks.Do do
 
   The comma should be followed by a space.
 
+  This task is automatically reenabled, so it can be called multiple times.
+
   ## Examples
 
   The example below prints the available compilers and
@@ -17,7 +19,9 @@ defmodule Mix.Tasks.Do do
 
   """
 
+  @impl true
   def run(args) do
+    Mix.Task.reenable("do")
     Enum.each(gather_commands(args), fn [task | args] -> Mix.Task.run(task, args) end)
   end
 

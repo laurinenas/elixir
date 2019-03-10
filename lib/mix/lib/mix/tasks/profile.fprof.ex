@@ -19,6 +19,9 @@ defmodule Mix.Tasks.Profile.Fprof do
       mix profile.fprof -e Hello.world
       mix profile.fprof my_script.exs arg1 arg2 arg3
 
+  This task is automatically reenabled, so you can profile multiple times
+  in the same Mix invocation.
+
   ## Command line options
 
     * `--callers` - prints detailed information about immediate callers and called functions
@@ -125,8 +128,10 @@ defmodule Mix.Tasks.Profile.Fprof do
 
   @aliases [r: :require, p: :parallel, e: :eval, c: :config]
 
+  @impl true
   def run(args) do
     {opts, head} = OptionParser.parse_head!(args, aliases: @aliases, strict: @switches)
+    Mix.Task.reenable("profile.fprof")
 
     Mix.Tasks.Run.run(
       ["--no-mix-exs" | args],
@@ -160,7 +165,7 @@ defmodule Mix.Tasks.Profile.Fprof do
   defp parse_opt(other), do: other
 
   @doc """
-  Allows to programatically run the `fprof` profiler on expression in `fun`.
+  Allows to programmatically run the `fprof` profiler on expression in `fun`.
 
   ## Options
 

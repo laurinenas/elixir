@@ -123,6 +123,35 @@ defmodule Mix.Tasks.TestTest do
     end)
   end
 
+  test "--cover: reports the coverage of each app's modules in an umbrella" do
+    in_fixture("umbrella_cover", fn ->
+      output = mix(["test", "--cover"])
+
+      # For bar, we do regular --cover and also test protocols
+      assert output =~ """
+             Generating cover results ...
+
+             Percentage | Module
+             -----------|--------------------------
+                100.00% | Bar
+                100.00% | Bar.Protocol.BitString
+             -----------|--------------------------
+                100.00% | Total
+             """
+
+      # For foo, we do regular --cover and test it does not include bar
+      assert output =~ """
+             Generating cover results ...
+
+             Percentage | Module
+             -----------|--------------------------
+                100.00% | Foo
+             -----------|--------------------------
+                100.00% | Total
+             """
+    end)
+  end
+
   test "--failed: loads only files with failures and runs just the failures" do
     in_fixture("test_failed", fn ->
       loading_only_passing_test_msg = "loading OnlyPassingTest"
@@ -157,7 +186,7 @@ defmodule Mix.Tasks.TestTest do
 
       # `--failed` and `--stale` cannot be combined
       output = mix(["test", "--failed", "--stale"])
-      assert output =~ "Combining `--failed` and `--stale` is not supported"
+      assert output =~ "Combining --failed and --stale is not supported"
     end)
   after
     System.delete_env("PASS_FAILING_TESTS")
@@ -233,6 +262,38 @@ defmodule Mix.Tasks.TestTest do
       Port.command(port, "\n")
 
       assert receive_until_match(port, "seed", "") =~ "2 tests"
+    end)
+  end
+
+  test "raises an exception if line numbers are given with multiple files" do
+    Mix.env(:test)
+
+    in_fixture("test_failed", fn ->
+      Mix.Project.in_project(:test_only_failures, ".", fn _ ->
+        # fails if a line number is given for one file
+        assert_raise(
+          Mix.Error,
+          "Line numbers can only be used when running a single test file",
+          fn ->
+            Mix.Tasks.Test.run([
+              "test/only_failing_test_failed.exs",
+              "test/passing_and_failing_test_failed.exs:4"
+            ])
+          end
+        )
+
+        # fails if a line number is given for both files
+        assert_raise(
+          Mix.Error,
+          "Line numbers can only be used when running a single test file",
+          fn ->
+            Mix.Tasks.Test.run([
+              "test/only_failing_test_failed.exs:4",
+              "test/passing_and_failing_test_failed.exs:4"
+            ])
+          end
+        )
+      end)
     end)
   end
 

@@ -38,8 +38,8 @@ defmodule Mix.UtilsTest do
   end
 
   test "extract stale" do
-    # 2030-01-01 00:00:00
-    time = 1_893_456_000
+    # 2038-01-01 00:00:00
+    time = 2_145_916_800
     assert Mix.Utils.extract_stale([__ENV__.file], [time]) == []
 
     # 2000-01-01 00:00:00
@@ -95,6 +95,12 @@ defmodule Mix.UtilsTest do
 
     System.put_env("HTTPS_PROXY", "https://example.com")
     assert Mix.Utils.proxy_config("https://example.com") == []
+  end
+
+  # 10.0.0.0 is a non-routable address
+  test "read_path timeouts requests" do
+    assert {:remote, "request timed out after 0ms"} =
+             Mix.Utils.read_path("http://10.0.0.0/", timeout: 0)
   end
 
   defp assert_ebin_symlinked_or_copied(result) do

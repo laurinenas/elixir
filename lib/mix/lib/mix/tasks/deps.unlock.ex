@@ -18,6 +18,7 @@ defmodule Mix.Tasks.Deps.Unlock do
 
   @switches [all: :boolean, unused: :boolean, filter: :string]
 
+  @impl true
   def run(args) do
     Mix.Project.get!()
     {opts, apps, _} = OptionParser.parse(args, switches: @switches)
@@ -27,7 +28,7 @@ defmodule Mix.Tasks.Deps.Unlock do
         Mix.Dep.Lock.write(%{})
 
       opts[:unused] ->
-        apps = Mix.Dep.loaded([]) |> Enum.map(& &1.app)
+        apps = Mix.Dep.load_on_environment([]) |> Enum.map(& &1.app)
         Mix.Dep.Lock.read() |> Map.take(apps) |> Mix.Dep.Lock.write()
 
       filter = opts[:filter] ->
@@ -66,7 +67,7 @@ defmodule Mix.Tasks.Deps.Unlock do
       true ->
         Mix.raise(
           "\"mix deps.unlock\" expects dependencies as arguments or " <>
-            "a flag indicating which dependencies to unlock. " <>
+            "an option indicating which dependencies to unlock. " <>
             "The --all option will unlock all dependencies while " <>
             "the --unused option unlocks unused dependencies"
         )

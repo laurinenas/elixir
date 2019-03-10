@@ -14,13 +14,17 @@ defmodule Version do
 
       MAJOR.MINOR.PATCH
 
-  Pre-releases are supported by appending `-[0-9A-Za-z-\.]`:
+  Pre-releases are supported by optionally appending a hyphen and a series of
+  period-separated identifiers immediately following the patch version.
+  Identifiers consist of only ASCII alphanumeric characters and hyphens (`[0-9A-Za-z-]`):
 
       "1.0.0-alpha.3"
 
-  Build information can be added by appending `+[0-9A-Za-z-\.]`:
+  Build information can be added by appending a plus sign and a series of
+  dot-separated identifiers immediately following the patch or pre-release version.
+  Identifiers consist of only ASCII alphanumeric characters and hyphens (`[0-9A-Za-z-]`):
 
-      "1.0.0-alpha.3+20130417140000"
+      "1.0.0-alpha.3+20130417140000.amd64"
 
   ## Struct
 
@@ -31,9 +35,9 @@ defmodule Version do
   ## Requirements
 
   Requirements allow you to specify which versions of a given
-  dependency you are willing to work against. Requirements support common
-  operators like `>=`, `<=`, `>`, `==`, and friends that
-  work as one would expect:
+  dependency you are willing to work against. Requirements support the common
+  comparison operators such as `>`, `>=`, `<`, `<=`, `==`, `!=` that work as one would expect,
+  and additionally the special operator `~>` described in detail further below.
 
       # Only version 2.0.0
       "== 2.0.0"
@@ -51,10 +55,11 @@ defmodule Version do
 
       "~> 2.0.0"
 
-  `~>` will never include pre-release versions of its upper bound.
-  It can also be used to set an upper bound on only the major
+  `~>` will never include pre-release versions of its upper bound,
+  regardless of the usage of the `:allow_pre` option, or whether the operand
+  is a pre-release version. It can also be used to set an upper bound on only the major
   version part. See the table below for `~>` requirements and
-  their corresponding translation.
+  their corresponding translations.
 
   `~>`           | Translation
   :------------- | :---------------------
@@ -64,23 +69,28 @@ defmodule Version do
   `~> 2.0`       | `>= 2.0.0 and < 3.0.0`
   `~> 2.1`       | `>= 2.1.0 and < 3.0.0`
 
-  When `allow_pre: false` is set, the requirement will not match a
-  pre-release version unless the operand is a pre-release version.
+  The requirement operand after the `~>` is allowed to omit the patch version,
+  allowing us to express `~> 2.1` or `~> 2.1-dev`, something that wouldn't be allowed
+  when using the common comparison operators.
+
+  When the `:allow_pre` option is set `false` in `Version.match?/3`, the requirement
+  will not match a pre-release version unless the operand is a pre-release version.
   The default is to always allow pre-releases but note that in
   Hex `:allow_pre` is set to `false`. See the table below for examples.
 
-  Requirement    | Version     | `:allow_pre` | Matches
-  :------------- | :---------- | :----------- | :------
-  `~> 2.0`       | `2.1.0`     | -            | `true`
-  `~> 2.0`       | `3.0.0`     | -            | `false`
-  `~> 2.0.0`     | `2.0.1`     | -            | `true`
-  `~> 2.0.0`     | `2.1.0`     | -            | `false`
-  `~> 2.1.2`     | `2.1.3-dev` | `true`       | `true`
-  `~> 2.1.2`     | `2.1.3-dev` | `false`      | `false`
-  `~> 2.1-dev`   | `2.2.0-dev` | `false`      | `true`
-  `~> 2.1.2-dev` | `2.1.3-dev` | `false`      | `true`
-  `>= 2.1.0`     | `2.2.0-dev` | `false`      | `false`
-  `>= 2.1.0-dev` | `2.2.3-dev` | `true`       | `true`
+  Requirement    | Version     | `:allow_pre`      | Matches
+  :------------- | :---------- | :---------------- | :------
+  `~> 2.0`       | `2.1.0`     | `true` or `false` | `true`
+  `~> 2.0`       | `3.0.0`     | `true` or `false` | `false`
+  `~> 2.0.0`     | `2.0.5`     | `true` or `false` | `true`
+  `~> 2.0.0`     | `2.1.0`     | `true` or `false` | `false`
+  `~> 2.1.2`     | `2.1.6-dev` | `true`            | `true`
+  `~> 2.1.2`     | `2.1.6-dev` | `false`           | `false`
+  `~> 2.1-dev`   | `2.2.0-dev` | `true` or `false` | `true`
+  `~> 2.1.2-dev` | `2.1.6-dev` | `true` or `false` | `true`
+  `>= 2.1.0`     | `2.2.0-dev` | `true`            | `true`
+  `>= 2.1.0`     | `2.2.0-dev` | `false`           | `false`
+  `>= 2.1.0-dev` | `2.2.6-dev` | `true` or `false` | `true`
 
   """
 
@@ -89,18 +99,17 @@ defmodule Version do
 
   @type version :: String.t() | t
   @type requirement :: String.t() | Version.Requirement.t()
-  @type major :: String.t() | non_neg_integer
-  @type minor :: non_neg_integer | nil
-  @type patch :: non_neg_integer | nil
+  @type major :: non_neg_integer
+  @type minor :: non_neg_integer
+  @type patch :: non_neg_integer
   @type pre :: [String.t() | non_neg_integer]
   @type build :: String.t() | nil
-  @type matchable :: {major :: major, minor :: minor, patch :: patch, pre :: pre}
   @type t :: %__MODULE__{major: major, minor: minor, patch: patch, pre: pre, build: build}
 
   defmodule Requirement do
     @moduledoc false
     defstruct [:source, :matchspec, :compiled]
-    @type t :: %__MODULE__{}
+    @type t :: %__MODULE__{source: String.t(), matchspec: :ets.match_spec(), compiled: boolean}
   end
 
   defmodule InvalidRequirementError do
@@ -143,8 +152,8 @@ defmodule Version do
   ## Options
 
     * `:allow_pre` (boolean) - when `false`, pre-release versions will not match
-      unless the operand is a pre-release version. See the table above
-      for examples. Defaults to `true`.
+      unless the operand is a pre-release version. Defaults to `true`.
+      For examples, please refer to the table above under the "Requirements" section.
 
   ## Examples
 
@@ -152,6 +161,12 @@ defmodule Version do
       true
 
       iex> Version.match?("2.0.0", "== 1.0.0")
+      false
+
+      iex> Version.match?("2.1.6-dev", "~> 2.1.2")
+      true
+
+      iex> Version.match?("2.1.6-dev", "~> 2.1.2", allow_pre: false)
       false
 
       iex> Version.match?("foo", "== 1.0.0")
@@ -165,13 +180,7 @@ defmodule Version do
   def match?(version, requirement, opts \\ [])
 
   def match?(version, requirement, opts) when is_binary(requirement) do
-    case parse_requirement(requirement) do
-      {:ok, requirement} ->
-        match?(version, requirement, opts)
-
-      :error ->
-        raise InvalidRequirementError, requirement
-    end
+    match?(version, parse_requirement!(requirement), opts)
   end
 
   def match?(version, %Requirement{matchspec: spec, compiled: false}, opts) do
@@ -267,7 +276,7 @@ defmodule Version do
   @doc """
   Parses a version string into a `Version`.
 
-  If `string` is an invalid version, an `InvalidVersionError` is raised.
+  If `string` is an invalid version, a `Version.InvalidVersionError` is raised.
 
   ## Examples
 
@@ -278,7 +287,7 @@ defmodule Version do
       ** (Version.InvalidVersionError) invalid version: "2.0-alpha1"
 
   """
-  @spec parse!(String.t()) :: t | no_return
+  @spec parse!(String.t()) :: t
   def parse!(string) when is_binary(string) do
     case parse(string) do
       {:ok, version} -> version
@@ -307,6 +316,32 @@ defmodule Version do
 
       :error ->
         :error
+    end
+  end
+
+  @doc """
+  Parses a version requirement string into a `Version.Requirement` struct.
+
+  If `string` is an invalid requirement, a `Version.InvalidRequirementError` is raised.
+
+  ## Examples
+
+      iex> Version.parse_requirement!("== 2.0.1")
+      #Version.Requirement<== 2.0.1>
+
+      iex> Version.parse_requirement!("== == 2.0.1")
+      ** (Version.InvalidRequirementError) invalid requirement: "== == 2.0.1"
+
+  """
+  @doc since: "1.8.0"
+  @spec parse_requirement!(String.t()) :: Requirement.t()
+  def parse_requirement!(string) when is_binary(string) do
+    case Version.Parser.parse_requirement(string) do
+      {:ok, spec} ->
+        %Requirement{source: string, matchspec: spec, compiled: false}
+
+      :error ->
+        raise InvalidRequirementError, string
     end
   end
 
@@ -394,7 +429,6 @@ defmodule Version do
       to_matchspec(lexed)
     end
 
-    @spec parse_version(String.t()) :: {:ok, Version.matchable()} | :error
     def parse_version(string, approximate? \\ false) when is_binary(string) do
       destructure [version_with_pre, build], String.split(string, "+", parts: 2)
       destructure [version, pre], String.split(version_with_pre, "-", parts: 2)

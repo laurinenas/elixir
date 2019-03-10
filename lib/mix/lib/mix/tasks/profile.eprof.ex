@@ -21,17 +21,20 @@ defmodule Mix.Tasks.Profile.Eprof do
       mix profile.eprof -e "[1, 2, 3] |> Enum.reverse |> Enum.map(&Integer.to_string/1)"
       mix profile.eprof my_script.exs arg1 arg2 arg3
 
+  This task is automatically reenabled, so you can profile multiple times
+  in the same Mix invocation.
+
   ## Command line options
 
     * `--matching` - only profile calls matching the given `Module.function/arity` pattern
     * `--calls` - filters out any results with a call count lower than this
     * `--time` - filters out any results that took lower than specified (in µs)
-    * `--sort` - sort the results by `time` or `calls` (default: `time`)
+    * `--sort` - sorts the results by `time` or `calls` (default: `time`)
     * `--config`, `-c` - loads the given configuration file
-    * `--eval`, `-e` - evaluate the given code
+    * `--eval`, `-e` - evaluates the given code
     * `--require`, `-r` - requires pattern before running the command
     * `--parallel`, `-p` - makes all requires parallel
-    * `--no-warmup` - skip the warmup step before profiling
+    * `--no-warmup` - skips the warmup step before profiling
     * `--no-compile` - does not compile even if files require compilation
     * `--no-deps-check` - does not check dependencies
     * `--no-archives-check` - does not check archives
@@ -121,8 +124,10 @@ defmodule Mix.Tasks.Profile.Eprof do
     c: :config
   ]
 
+  @impl true
   def run(args) do
     {opts, head} = OptionParser.parse_head!(args, aliases: @aliases, strict: @switches)
+    Mix.Task.reenable("profile.eprof")
 
     Mix.Tasks.Run.run(
       ["--no-mix-exs" | args],
@@ -165,7 +170,7 @@ defmodule Mix.Tasks.Profile.Eprof do
   defp parse_opt(other), do: other
 
   @doc """
-  Allows to programatically run the `eprof` profiler on expression in `fun`.
+  Allows to programmatically run the `eprof` profiler on expression in `fun`.
 
   ## Options
 
@@ -315,7 +320,7 @@ defmodule Mix.Tasks.Profile.Eprof do
     :io.format(@format, to_print)
   end
 
-  def print_function_count(count) do
+  defp print_function_count(count) do
     IO.puts("Profile done over #{count} matching functions")
   end
 end

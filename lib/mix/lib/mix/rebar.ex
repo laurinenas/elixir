@@ -75,16 +75,17 @@ defmodule Mix.Rebar do
 
   @doc """
   Updates Rebar configuration to be more suitable for dependencies.
-
-  Drops `warnings_as_errors` from `erl_opts`.
   """
   def dependency_config(config) do
-    Enum.map(config, fn
+    Enum.flat_map(config, fn
       {:erl_opts, opts} ->
-        {:erl_opts, List.delete(opts, :warnings_as_errors)}
+        [{:erl_opts, List.delete(opts, :warnings_as_errors)}]
+
+      {:project_plugins, _} ->
+        []
 
       other ->
-        other
+        [other]
     end)
   end
 
@@ -92,7 +93,7 @@ defmodule Mix.Rebar do
   Parses the dependencies in given `rebar.config` to Mix's dependency format.
   """
   def deps(config) do
-    # We don't have to handle rebar3 profiles because dependencies
+    # We don't have to handle Rebar3 profiles because dependencies
     # are always in the default profile which cannot be customized
     if deps = config[:deps] do
       Enum.map(deps, &parse_dep/1)
@@ -119,14 +120,14 @@ defmodule Mix.Rebar do
     [fun.(config) | subs]
   end
 
-  # Translate a rebar dependency declaration to a mix declaration
+  # Translate a Rebar dependency declaration to a Mix declaration
   # From http://www.rebar3.org/docs/dependencies#section-declaring-dependencies
   defp parse_dep(app) when is_atom(app) do
-    {app, ">= 0.0.0"}
+    {app, ">= 0.0.0", override: true}
   end
 
   defp parse_dep({app, req}) when is_list(req) do
-    {app, List.to_string(req)}
+    {app, List.to_string(req), override: true}
   end
 
   defp parse_dep({app, source}) when is_tuple(source) do
@@ -139,10 +140,8 @@ defmodule Mix.Rebar do
 
   defp parse_dep({app, req, source, opts}) do
     source = parse_source(source)
-
     compile = if :proplists.get_value(:raw, opts, false), do: [compile: false], else: []
-
-    {app, compile_req(req), source ++ compile}
+    {app, compile_req(req), [override: true] ++ source ++ compile}
   end
 
   defp parse_source({:pkg, pkg}) do
@@ -182,7 +181,7 @@ defmodule Mix.Rebar do
             re
 
           {:error, reason} ->
-            Mix.raise("Unable to compile version regex: #{inspect(req)}, #{reason}")
+            Mix.raise("Unable to compile version regular expression: #{inspect(req)}, #{reason}")
         end
     end
   end

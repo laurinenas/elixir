@@ -36,13 +36,9 @@ defmodule IO do
 
   @type device :: atom | pid
   @type nodata :: {:error, term} | :eof
-  @type chardata() :: :unicode.chardata()
+  @type chardata :: String.t() | maybe_improper_list(char | chardata, String.t() | [])
 
-  defmacrop is_iodata(data) do
-    quote do
-      is_list(unquote(data)) or is_binary(unquote(data))
-    end
-  end
+  defguardp is_iodata(data) when is_list(data) or is_binary(data)
 
   @doc """
   Reads from the IO `device`.
@@ -141,37 +137,42 @@ defmodule IO do
   end
 
   @doc """
-  Writes `item` to the given `device`.
+  Writes `chardata` to the given `device`.
 
   By default, the `device` is the standard output.
 
   ## Examples
 
-      IO.write "sample"
+      IO.write("sample")
       #=> sample
 
-      IO.write :stderr, "error"
+      IO.write(:stderr, "error")
       #=> error
 
   """
   @spec write(device, chardata | String.Chars.t()) :: :ok
-  def write(device \\ :stdio, item) do
-    :io.put_chars(map_dev(device), to_chardata(item))
+  def write(device \\ :stdio, chardata) do
+    :io.put_chars(map_dev(device), to_chardata(chardata))
   end
 
   @doc """
-  Writes `item` as a binary to the given `device`.
-  No Unicode conversion happens.
-  The operation is Unicode unsafe.
+  Writes `iodata` to the given `device`.
 
-  Check `write/2` for more information.
+  This operation is meant to be used with "raw" devices
+  that are started without an encoding. The given `iodata`
+  is written as is to the device, without conversion.
 
-  Note: do not use this function on IO devices in Unicode mode
-  as it will return the wrong result.
+  Use `write/2` for devices with encoding.
+
+  Important: do **not** use this function on IO devices in
+  Unicode mode as it will write the wrong data. In particular,
+  the standard IO device is set to Unicode by default, so writing
+  to stdio with this function will likely result in the wrong data
+  being sent down the wire.
   """
   @spec binwrite(device, iodata) :: :ok | {:error, term}
-  def binwrite(device \\ :stdio, item) when is_iodata(item) do
-    :file.write(map_dev(device), item)
+  def binwrite(device \\ :stdio, iodata) when is_iodata(iodata) do
+    :file.write(map_dev(device), iodata)
   end
 
   @doc """
@@ -183,10 +184,10 @@ defmodule IO do
 
   ## Examples
 
-      IO.puts "Hello World!"
+      IO.puts("Hello World!")
       #=> Hello World!
 
-      IO.puts :stderr, "error"
+      IO.puts(:stderr, "error")
       #=> error
 
   """
@@ -207,14 +208,14 @@ defmodule IO do
   ## Examples
 
       stacktrace = [{MyApp, :main, 1, [file: 'my_app.ex', line: 4]}]
-      IO.warn "variable bar is unused", stacktrace
+      IO.warn("variable bar is unused", stacktrace)
       #=> warning: variable bar is unused
       #=>   my_app.ex:4: MyApp.main/1
 
   """
   @spec warn(chardata | String.Chars.t(), Exception.stacktrace()) :: :ok
   def warn(message, []) do
-    :elixir_errors.bare_warn(nil, nil, [to_chardata(message), ?\n])
+    :elixir_errors.io_warn(nil, nil, [to_chardata(message), ?\n])
   end
 
   def warn(message, [{_, _, _, opts} | _] = stacktrace) do
@@ -222,7 +223,7 @@ defmodule IO do
     message = [to_chardata(message), ?\n, "  ", formatted_trace, ?\n]
     line = opts[:line]
     file = opts[:file]
-    :elixir_errors.bare_warn(line, file && List.to_string(file), message)
+    :elixir_errors.io_warn(line, file && List.to_string(file), message)
   end
 
   @doc """
@@ -232,7 +233,7 @@ defmodule IO do
 
   ## Examples
 
-      IO.warn "variable bar is unused"
+      IO.warn("variable bar is unused")
       #=> warning: variable bar is unused
       #=>   (iex) evaluator.ex:108: IEx.Evaluator.eval/4
 
@@ -263,7 +264,7 @@ defmodule IO do
 
   ## Examples
 
-      IO.inspect <<0, 1, 2>>, width: 40
+      IO.inspect(<<0, 1, 2>>, width: 40)
 
   Prints:
 
@@ -271,7 +272,7 @@ defmodule IO do
 
   We can use the `:label` option to decorate the output:
 
-      IO.inspect 1..100, label: "a wonderful range"
+      IO.inspect(1..100, label: "a wonderful range")
 
   Prints:
 
@@ -283,7 +284,7 @@ defmodule IO do
       |> IO.inspect(label: "before")
       |> Enum.map(&(&1 * 2))
       |> IO.inspect(label: "after")
-      |> Enum.sum
+      |> Enum.sum()
 
   Prints:
 
@@ -315,7 +316,7 @@ defmodule IO do
   Gets a number of bytes from IO device `:stdio`.
 
   If `:stdio` is a Unicode device, `count` implies
-  the number of Unicode codepoints to be retrieved.
+  the number of Unicode code points to be retrieved.
   Otherwise, `count` is the number of raw bytes to be retrieved.
 
   See `IO.getn/3` for a description of return values.
@@ -337,7 +338,7 @@ defmodule IO do
   Gets a number of bytes from the IO `device`.
 
   If the IO `device` is a Unicode device, `count` implies
-  the number of Unicode codepoints to be retrieved.
+  the number of Unicode code points to be retrieved.
   Otherwise, `count` is the number of raw bytes to be retrieved.
 
   It returns:
@@ -374,7 +375,7 @@ defmodule IO do
 
   To display "What is your name?" as a prompt and await user input:
 
-      IO.gets "What is your name?\n"
+      IO.gets("What is your name?\n")
 
   """
   @spec gets(device, chardata | String.Chars.t()) :: chardata | nodata
@@ -403,7 +404,7 @@ defmodule IO do
   Here is an example on how we mimic an echo server
   from the command line:
 
-      Enum.each IO.stream(:stdio, :line), &IO.write(&1)
+      Enum.each(IO.stream(:stdio, :line), &IO.write(&1))
 
   """
   @spec stream(device, :line | pos_integer) :: Enumerable.t()
@@ -439,7 +440,7 @@ defmodule IO do
   end
 
   @doc """
-  Converts chardata (a list of integers representing codepoints,
+  Converts chardata (a list of integers representing code points,
   lists and strings) into a string.
 
   In case the conversion fails, it raises an `UnicodeConversionError`.
@@ -457,7 +458,7 @@ defmodule IO do
       "string"
 
   """
-  @spec chardata_to_string(chardata) :: String.t() | no_return
+  @spec chardata_to_string(chardata) :: String.t()
   def chardata_to_string(string) when is_binary(string) do
     string
   end
@@ -494,8 +495,8 @@ defmodule IO do
 
   """
   @spec iodata_to_binary(iodata) :: binary
-  def iodata_to_binary(item) do
-    :erlang.iolist_to_binary(item)
+  def iodata_to_binary(iodata) do
+    :erlang.iolist_to_binary(iodata)
   end
 
   @doc """
@@ -510,8 +511,8 @@ defmodule IO do
 
   """
   @spec iodata_length(iodata) :: non_neg_integer
-  def iodata_length(item) do
-    :erlang.iolist_size(item)
+  def iodata_length(iodata) do
+    :erlang.iolist_size(iodata)
   end
 
   @doc false

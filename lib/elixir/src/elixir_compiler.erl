@@ -52,34 +52,35 @@ eval_forms(Forms, Vars, E) ->
       compile(Forms, Vars, E)
   end.
 
-compile(Forms, Vars, #{line := Line, file := File} = E) ->
-  Dict = [{{Name, Kind}, {0, Value}} || {Name, Kind, Value, _} <- Vars],
-  S = elixir_env:env_to_scope_with_vars(E, Dict),
-  {Expr, EE, _S} = elixir:quoted_to_erl(Forms, E, S),
+compile(Quoted, Vars, E) ->
+  Args = list_to_tuple([V || {_, _, _, V} <- Vars]),
+  {Expanded, EE} = elixir_expand:expand(Quoted, E),
   elixir_env:check_unused_vars(EE),
 
-  {Module, I} = retrieve_compiler_module(),
+  {Module, Fun, Purgeable} =
+    elixir_erl_compiler:spawn(fun spawned_compile/3, [Expanded, Vars, E]),
+
+  {dispatch(Module, Fun, Args, Purgeable), EE}.
+
+spawned_compile(ExExprs, Vars, #{line := Line, file := File} = E) ->
+  Dict = [{{Name, Kind}, {0, Value}} || {Name, Kind, Value, _} <- Vars],
+  S = elixir_env:env_to_scope_with_vars(E, Dict),
+  {ErlExprs, _} = elixir_erl_pass:translate(ExExprs, S),
+
+  Module = retrieve_compiler_module(),
   Fun  = code_fun(?key(E, module)),
-  Form = code_mod(Fun, Expr, Line, File, Module, Vars),
-  Args = list_to_tuple([V || {_, _, _, V} <- Vars]),
+  Forms = code_mod(Fun, ErlExprs, Line, File, Module, Vars),
 
-  {Module, Binary} = elixir_erl_compiler:noenv_forms(Form, File, [nowarn_nomatch]),
+  {Module, Binary} = elixir_erl_compiler:noenv_forms(Forms, File, [nowarn_nomatch]),
   code:load_binary(Module, "", Binary),
+  {Module, Fun, is_purgeable(Module, Binary)}.
 
-  Purgeable = beam_lib:chunks(Binary, [labeled_locals]) ==
-              {ok, {Module, [{labeled_locals, []}]}},
-  dispatch(Module, Fun, Args, Purgeable, I, EE).
-
-dispatch(Module, Fun, Args, Purgeable, I, E) ->
+dispatch(Module, Fun, Args, Purgeable) ->
   Res = Module:Fun(Args),
   code:delete(Module),
-  if Purgeable ->
-      code:purge(Module),
-      return_compiler_module(I);
-     true ->
-       ok
-  end,
-  {Res, E}.
+  Purgeable andalso code:purge(Module),
+  return_compiler_module(Module, Purgeable),
+  Res.
 
 code_fun(nil) -> '__FILE__';
 code_fun(_)   -> '__MODULE__'.
@@ -102,13 +103,18 @@ code_mod(Fun, Expr, Line, File, Module, Vars) when is_binary(File), is_integer(L
 retrieve_compiler_module() ->
   elixir_code_server:call(retrieve_compiler_module).
 
-return_compiler_module(I) ->
-  elixir_code_server:cast({return_compiler_module, I}).
+return_compiler_module(Module, Purgeable) ->
+  elixir_code_server:cast({return_compiler_module, Module, Purgeable}).
+
+is_purgeable(Module, Binary) ->
+  beam_lib:chunks(Binary, [labeled_locals]) == {ok, {Module, [{labeled_locals, []}]}}.
 
 allows_fast_compilation({'__block__', _, Exprs}) ->
   lists:all(fun allows_fast_compilation/1, Exprs);
-allows_fast_compilation({defmodule, _, _}) -> true;
-allows_fast_compilation(_) -> false.
+allows_fast_compilation({defmodule, _, _}) ->
+  true;
+allows_fast_compilation(_) ->
+  false.
 
 %% Bootstrapper
 
@@ -125,8 +131,8 @@ bootstrap_file(File) ->
     _ = [binary_to_path(X, "lib/elixir/ebin") || X <- Lists],
     io:format("Compiled ~ts~n", [File])
   catch
-    Kind:Reason ->
-      io:format("~p: ~p~nstacktrace: ~p~n", [Kind, Reason, erlang:get_stacktrace()]),
+    ?WITH_STACKTRACE(Kind, Reason, Stacktrace)
+      io:format("~p: ~p~nstacktrace: ~p~n", [Kind, Reason, Stacktrace]),
       erlang:halt(1)
   end.
 

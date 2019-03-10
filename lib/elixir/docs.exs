@@ -1,6 +1,10 @@
 # Returns config for Elixir docs
 [
   extras: Path.wildcard("lib/elixir/pages/*.md"),
+  groups_for_functions: [
+    Guards: & &1[:guard] == true
+  ],
+  skip_undefined_reference_warnings_on: ["compatibility-and-deprecations"],
   groups_for_modules: [
     # [Kernel, Kernel.SpecialForms],
 
@@ -8,13 +12,13 @@
       Atom,
       Base,
       Bitwise,
-      Calendar,
-      Calendar.ISO,
       Date,
       DateTime,
       Exception,
       Float,
+      Function,
       Integer,
+      Module,
       NaiveDateTime,
       Record,
       Regex,
@@ -22,9 +26,8 @@
       Time,
       Tuple,
       URI,
-      Version,
+      Version
     ],
-
     "Collections & Enumerables": [
       Access,
       Date.Range,
@@ -34,9 +37,8 @@
       Map,
       MapSet,
       Range,
-      Stream,
+      Stream
     ],
-
     "IO & System": [
       File,
       File.Stat,
@@ -48,17 +50,14 @@
       Path,
       Port,
       StringIO,
-      System,
+      System
     ],
-
-    "Modules & Code": [
-      Code,
-      Kernel.ParallelCompiler,
-      Macro,
-      Macro.Env,
-      Module,
+    "Calendar": [
+      Calendar,
+      Calendar.ISO,
+      Calendar.TimeZoneDatabase,
+      Calendar.UTCOnlyTimeZoneDatabase
     ],
-
     "Processes & Applications": [
       Agent,
       Application,
@@ -69,10 +68,9 @@
       Registry,
       Supervisor,
       Task,
-      Task.Supervisor,
+      Task.Supervisor
     ],
-
-    "Protocols": [
+    Protocols: [
       Collectable,
       Enumerable,
       Inspect,
@@ -80,10 +78,15 @@
       Inspect.Opts,
       List.Chars,
       Protocol,
-      String.Chars,
+      String.Chars
     ],
-
-    "Deprecated": [
+    "Code & Macros": [
+      Code,
+      Kernel.ParallelCompiler,
+      Macro,
+      Macro.Env
+    ],
+    Deprecated: [
       Behaviour,
       Dict,
       GenEvent,
@@ -91,6 +94,6 @@
       HashSet,
       Set,
       Supervisor.Spec
-    ],
+    ]
   ]
 ]

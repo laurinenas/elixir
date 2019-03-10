@@ -97,7 +97,7 @@ defmodule Mix.Tasks.EscriptTest do
     end)
   end
 
-  test "generate escript with --no-compile flag" do
+  test "generate escript with --no-compile option" do
     Mix.Project.push(Escript)
 
     in_fixture("escript_test", fn ->
@@ -212,18 +212,6 @@ defmodule Mix.Tasks.EscriptTest do
     purge([Ok.MixProject])
   end
 
-  test "generating escript for umbrella projects fails with a nice error" do
-    message = "Building escripts for umbrella projects is unsupported"
-
-    in_fixture("umbrella_dep/deps/umbrella", fn ->
-      Mix.Project.in_project(:umbrella, ".", fn _ ->
-        assert_raise Mix.Error, message, fn ->
-          Mix.Tasks.Escript.Build.run([])
-        end
-      end)
-    end)
-  end
-
   test "generate escript with consolidated protocols" do
     Mix.Project.push(EscriptConsolidated)
 
@@ -264,6 +252,27 @@ defmodule Mix.Tasks.EscriptTest do
       Mix.Tasks.Escript.Uninstall.run(["escript_test"])
       refute File.regular?(tmp_path(".mix/escripts/escript_test"))
       refute File.regular?(tmp_path(".mix/escripts/escript_test.bat"))
+
+      # check that no escripts remain
+      Mix.Tasks.Escript.run([])
+      assert_received {:mix_shell, :info, ["No escripts currently installed."]}
+    end)
+  end
+
+  test "escript install and uninstall --force" do
+    File.rm_rf!(tmp_path(".mix/escripts"))
+    Mix.Project.push(Escript)
+
+    in_fixture("escript_test", fn ->
+      Mix.Tasks.Escript.Install.run(["--force"])
+
+      # check that it shows in the list
+      Mix.Tasks.Escript.run([])
+      assert_received {:mix_shell, :info, ["* escript_test"]}
+      refute_received {:mix_shell, :info, ["* escript_test.bat"]}
+
+      # uninstall the escript
+      Mix.Tasks.Escript.Uninstall.run(["escript_test", "--force"])
 
       # check that no escripts remain
       Mix.Tasks.Escript.run([])
@@ -326,5 +335,19 @@ defmodule Mix.Tasks.EscriptTest do
     end)
   after
     purge([GitRepo, GitRepo.MixProject])
+  end
+
+  test "escript install timeout" do
+    message = ~r[request timed out after 0ms]
+
+    send(self(), {:mix_shell_input, :yes?, true})
+
+    assert_raise Mix.Error, message, fn ->
+      Mix.Tasks.Escript.Install.run([
+        "http://10.0.0.0/unlikely-to-exist-0.1.0.ez",
+        "--timeout",
+        "0"
+      ])
+    end
   end
 end

@@ -129,12 +129,6 @@ defmodule KernelTest do
     assert is_map(defstruct name: "john")
   end
 
-  defmodule UserTuple do
-    def __struct__({UserTuple, :ok}) do
-      %User{}
-    end
-  end
-
   test "struct/1 and struct/2" do
     assert struct(User) == %User{name: "john"}
 
@@ -440,9 +434,7 @@ defmodule KernelTest do
       end
     end
 
-    test "is optimized" do
-      assert expand_to_string(quote(do: foo in [])) == "Enum.member?([], foo)"
-
+    test "hoists variables" do
       result = expand_to_string(quote(do: rand() in 1..2))
       assert result =~ "var = rand()"
 
@@ -459,8 +451,18 @@ defmodule KernelTest do
 
       result = expand_to_string(quote(do: rand() in [1 | some_call()]))
       assert result =~ "var = rand()"
-      assert result =~ "{var0} = {some_call()}"
-      assert result =~ ":erlang.orelse(:erlang.\"=:=\"(var, 1), :lists.member(var, var0))"
+      assert result =~ "{arg0} = {some_call()}"
+      assert result =~ ":erlang.orelse(:erlang.\"=:=\"(var, 1), :lists.member(var, arg0))"
+    end
+
+    test "is optimized" do
+      assert expand_to_string(quote(do: foo in [])) == "Enum.member?([], foo)"
+
+      assert expand_to_string(quote(do: foo in 0..1)) ==
+               ":erlang.andalso(:erlang.is_integer(foo), :erlang.andalso(:erlang.>=(foo, 0), :erlang.\"=<\"(foo, 1)))"
+
+      assert expand_to_string(quote(do: foo in -1..0)) ==
+               ":erlang.andalso(:erlang.is_integer(foo), :erlang.andalso(:erlang.>=(foo, -1), :erlang.\"=<\"(foo, 0)))"
     end
 
     defp expand_to_string(ast) do
@@ -937,6 +939,63 @@ defmodule KernelTest do
     end
 
     assert hd([1 | 2]) == 1
+  end
+
+  test "floor/1" do
+    assert floor(1) === 1
+    assert floor(1.0) === 1
+    assert floor(0) === 0
+    assert floor(0.0) === 0
+    assert floor(-0.0) === 0
+    assert floor(1.123) === 1
+    assert floor(-10.123) === -11
+    assert floor(-10) === -10
+    assert floor(-10.0) === -10
+
+    assert match?(x when floor(x) == 0, 0.2)
+  end
+
+  test "ceil/1" do
+    assert ceil(1) === 1
+    assert ceil(1.0) === 1
+    assert ceil(0) === 0
+    assert ceil(0.0) === 0
+    assert ceil(-0.0) === 0
+    assert ceil(1.123) === 2
+    assert ceil(-10.123) === -10
+    assert ceil(-10) === -10
+    assert ceil(-10.0) === -10
+
+    assert match?(x when ceil(x) == 1, 0.2)
+  end
+
+  test "sigil_U/2" do
+    assert ~U[2015-01-13 13:00:07.123Z] == %DateTime{
+             calendar: Calendar.ISO,
+             day: 13,
+             hour: 13,
+             microsecond: {123_000, 3},
+             minute: 0,
+             month: 1,
+             second: 7,
+             std_offset: 0,
+             time_zone: "Etc/UTC",
+             utc_offset: 0,
+             year: 2015,
+             zone_abbr: "UTC"
+           }
+
+    assert_raise ArgumentError, ~r"reason: :invalid_format", fn ->
+      Code.eval_string(~s{~U[2015-01-13 13:00]})
+    end
+
+    assert_raise ArgumentError, ~r"reason: :missing_offset", fn ->
+      Code.eval_string(~s{~U[2015-01-13 13:00:07]})
+    end
+
+    assert_raise ArgumentError, ~r"reason: :non_utc_offset", fn ->
+      Code.eval_string(~s{~U[2015-01-13 13:00:07+00:30]})
+    end
   end
 
   defp purge(module) do

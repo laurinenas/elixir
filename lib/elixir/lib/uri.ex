@@ -30,7 +30,7 @@ defmodule URI do
   import Bitwise
 
   @doc """
-  Returns the default port for a given scheme.
+  Returns the default port for a given `scheme`.
 
   If the scheme is unknown to the `URI` module, this function returns
   `nil`. The default port for any scheme can be configured globally
@@ -47,7 +47,7 @@ defmodule URI do
   """
   @spec default_port(binary) :: nil | non_neg_integer
   def default_port(scheme) when is_binary(scheme) do
-    :elixir_config.safe_get({:uri, scheme}, nil)
+    :elixir_config.get({:uri, scheme}, nil)
   end
 
   @doc """
@@ -76,7 +76,7 @@ defmodule URI do
   values are URL encoded as per `encode_www_form/1`.
 
   Keys and values can be any term that implements the `String.Chars`
-  protocol, except lists which are explicitly forbidden.
+  protocol with the exception of lists, which are explicitly forbidden.
 
   ## Examples
 
@@ -92,7 +92,7 @@ defmodule URI do
       ** (ArgumentError) encode_query/1 values cannot be lists, got: [:a, :list]
 
   """
-  @spec encode_query(term) :: binary
+  @spec encode_query(Enum.t()) :: binary
   def encode_query(enumerable) do
     Enum.map_join(enumerable, "&", &encode_kv_pair/1)
   end
@@ -112,7 +112,7 @@ defmodule URI do
   @doc """
   Decodes a query string into a map.
 
-  Given a query string of the form of `key1=value1&key2=value2...`, this
+  Given a query string in the form of `key1=value1&key2=value2...`, this
   function inserts each key-value pair in the query string as one entry in the
   given `map`. Keys and values in the resulting map will be binaries. Keys and
   values will be percent-unescaped.
@@ -128,10 +128,9 @@ defmodule URI do
       %{"percent" => "oh yes!", "starting" => "map"}
 
   """
-  @spec decode_query(binary, %{binary => binary}) :: %{binary => binary}
+  @spec decode_query(binary, %{optional(binary) => binary}) :: %{optional(binary) => binary}
   def decode_query(query, map \\ %{})
 
-  # TODO: Remove on 2.0
   def decode_query(query, %_{} = dict) when is_binary(query) do
     IO.warn("URI.decode_query/2 is deprecated, please use URI.decode_query/1")
     decode_query_into_dict(query, dict)
@@ -141,7 +140,6 @@ defmodule URI do
     decode_query_into_map(query, map)
   end
 
-  # TODO: Remove on 2.0
   def decode_query(query, dict) when is_binary(query) do
     IO.warn("URI.decode_query/2 is deprecated, please use URI.decode_query/1")
     decode_query_into_dict(query, dict)
@@ -207,7 +205,7 @@ defmodule URI do
   end
 
   @doc """
-  Checks if the character is a "reserved" character in a URI.
+  Checks if `character` is a reserved one in a URI.
 
   Reserved characters are specified in
   [RFC 3986, section 2.2](https://tools.ietf.org/html/rfc3986#section-2.2).
@@ -219,12 +217,12 @@ defmodule URI do
 
   """
   @spec char_reserved?(char) :: boolean
-  def char_reserved?(char) when char in 0..0x10FFFF do
-    char in ':/?#[]@!$&\'()*+,;='
+  def char_reserved?(character) when character in 0..0x10FFFF do
+    character in ':/?#[]@!$&\'()*+,;='
   end
 
   @doc """
-  Checks if the character is a "unreserved" character in a URI.
+  Checks if `character` is an unreserved one in a URI.
 
   Unreserved characters are specified in
   [RFC 3986, section 2.3](https://tools.ietf.org/html/rfc3986#section-2.3).
@@ -236,12 +234,12 @@ defmodule URI do
 
   """
   @spec char_unreserved?(char) :: boolean
-  def char_unreserved?(char) when char in 0..0x10FFFF do
-    char in ?0..?9 or char in ?a..?z or char in ?A..?Z or char in '~_-.'
+  def char_unreserved?(character) when character in 0..0x10FFFF do
+    character in ?0..?9 or character in ?a..?z or character in ?A..?Z or character in '~_-.'
   end
 
   @doc """
-  Checks if the character is allowed unescaped in a URI.
+  Checks if `character` is allowed unescaped in a URI.
 
   This is the default used by `URI.encode/2` where both
   reserved and unreserved characters are kept unescaped.
@@ -253,15 +251,15 @@ defmodule URI do
 
   """
   @spec char_unescaped?(char) :: boolean
-  def char_unescaped?(char) when char in 0..0x10FFFF do
-    char_reserved?(char) or char_unreserved?(char)
+  def char_unescaped?(character) when character in 0..0x10FFFF do
+    char_reserved?(character) or char_unreserved?(character)
   end
 
   @doc """
-  Percent-escapes all characters that require escaping in a string.
+  Percent-escapes all characters that require escaping in `string`.
 
-  This means reserved characters, such as `:` and `/`, and the so-
-  called unreserved characters, which have the same meaning both
+  This means reserved characters, such as `:` and `/`, and the
+  so-called unreserved characters, which have the same meaning both
   escaped and unescaped, won't be escaped by default.
 
   See `encode_www_form` if you are interested in escaping reserved
@@ -269,8 +267,9 @@ defmodule URI do
 
   This function also accepts a `predicate` function as an optional
   argument. If passed, this function will be called with each byte
-  in `string` as its argument and should return `true` if the given
-  byte should be left as is.
+  in `string` as its argument and should return a truthy value (anything other
+  than `false` or `nil`) if the given byte should be left as is, or return a
+  falsy value (`false` or `nil`) if the character should be escaped.
 
   ## Examples
 
@@ -281,14 +280,14 @@ defmodule URI do
       "a str%69ng"
 
   """
-  @spec encode(binary, (byte -> boolean)) :: binary
+  @spec encode(binary, (byte -> as_boolean(term))) :: binary
   def encode(string, predicate \\ &char_unescaped?/1)
       when is_binary(string) and is_function(predicate, 1) do
-    for <<char <- string>>, into: "", do: percent(char, predicate)
+    for <<byte <- string>>, into: "", do: percent(byte, predicate)
   end
 
   @doc """
-  Encodes a string as "x-www-form-urlencoded".
+  Encodes `string` as "x-www-form-urlencoded".
 
   ## Example
 
@@ -298,8 +297,8 @@ defmodule URI do
   """
   @spec encode_www_form(binary) :: binary
   def encode_www_form(string) when is_binary(string) do
-    for <<char <- string>>, into: "" do
-      case percent(char, &char_unreserved?/1) do
+    for <<byte <- string>>, into: "" do
+      case percent(byte, &char_unreserved?/1) do
         "%20" -> "+"
         percent -> percent
       end
@@ -322,8 +321,8 @@ defmodule URI do
 
   ## Examples
 
-      iex> URI.decode("http%3A%2F%2Felixir-lang.org")
-      "http://elixir-lang.org"
+      iex> URI.decode("https%3A%2F%2Felixir-lang.org")
+      "https://elixir-lang.org"
 
   """
   @spec decode(binary) :: binary
@@ -335,7 +334,7 @@ defmodule URI do
   end
 
   @doc """
-  Decodes a string as "x-www-form-urlencoded".
+  Decodes `string` as "x-www-form-urlencoded".
 
   ## Examples
 
@@ -344,7 +343,7 @@ defmodule URI do
 
   """
   @spec decode_www_form(binary) :: binary
-  def decode_www_form(string) do
+  def decode_www_form(string) when is_binary(string) do
     unpercent(string, "", true)
   catch
     :malformed_uri ->
@@ -390,35 +389,62 @@ defmodule URI do
 
   ## Examples
 
-      iex> URI.parse("http://elixir-lang.org/")
-      %URI{scheme: "http", path: "/", query: nil, fragment: nil,
-           authority: "elixir-lang.org", userinfo: nil,
-           host: "elixir-lang.org", port: 80}
+      iex> URI.parse("https://elixir-lang.org/")
+      %URI{
+        authority: "elixir-lang.org",
+        fragment: nil,
+        host: "elixir-lang.org",
+        path: "/",
+        port: 443,
+        query: nil,
+        scheme: "https",
+        userinfo: nil
+      }
 
       iex> URI.parse("//elixir-lang.org/")
-      %URI{authority: "elixir-lang.org", fragment: nil, host: "elixir-lang.org",
-           path: "/", port: nil, query: nil, scheme: nil, userinfo: nil}
+      %URI{
+        authority: "elixir-lang.org",
+        fragment: nil,
+        host: "elixir-lang.org",
+        path: "/",
+        port: nil,
+        query: nil,
+        scheme: nil,
+        userinfo: nil
+      }
 
       iex> URI.parse("/foo/bar")
-      %URI{authority: nil, fragment: nil, host: nil, path: "/foo/bar",
-           port: nil, query: nil, scheme: nil, userinfo: nil}
+      %URI{
+        authority: nil,
+        fragment: nil,
+        host: nil,
+        path: "/foo/bar",
+        port: nil,
+        query: nil,
+        scheme: nil,
+        userinfo: nil
+      }
 
       iex> URI.parse("foo/bar")
-      %URI{authority: nil, fragment: nil, host: nil, path: "foo/bar",
-           port: nil, query: nil, scheme: nil, userinfo: nil}
+      %URI{
+        authority: nil,
+        fragment: nil,
+        host: nil,
+        path: "foo/bar",
+        port: nil,
+        query: nil,
+        scheme: nil,
+        userinfo: nil
+      }
 
   """
   @spec parse(t | binary) :: t
-  def parse(uri)
-
   def parse(%URI{} = uri), do: uri
 
   def parse(string) when is_binary(string) do
     # From https://tools.ietf.org/html/rfc3986#appendix-B
     regex =
-      Regex.recompile!(
-        ~r/^(([a-z][a-z0-9\+\-\.]*):)?(\/\/([^\/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?/i
-      )
+      Regex.recompile!(~r{^(([a-z][a-z0-9\+\-\.]*):)?(//([^/?#]*))?([^?#]*)(\?([^#]*))?(#(.*))?}i)
 
     parts = Regex.run(regex, string)
 
@@ -468,7 +494,7 @@ defmodule URI do
   defp nillify(other), do: other
 
   @doc """
-  Returns the string representation of the given `URI` struct.
+  Returns the string representation of the given [URI struct](`t:t/0`).
 
   ## Examples
 
@@ -478,8 +504,8 @@ defmodule URI do
       iex> URI.to_string(%URI{scheme: "foo", host: "bar.baz"})
       "foo://bar.baz"
 
-  Note that when creating this string representation, the `authority` will be
-  used if the host is `nil`. Otherwise, the `userinfo`, `host`, and `port` will
+  Note that when creating this string representation, the `:authority` value will be
+  used if the `:host` is `nil`. Otherwise, the `:userinfo`, `:host`, and `:port` will
   be used.
 
       iex> URI.to_string(%URI{authority: "foo@example.com:80"})
@@ -488,8 +514,12 @@ defmodule URI do
       iex> URI.to_string(%URI{userinfo: "bar", host: "example.org", port: 81})
       "//bar@example.org:81"
 
-      iex> URI.to_string(%URI{authority: "foo@example.com:80",
-      ...>                    userinfo: "bar", host: "example.org", port: 81})
+      iex> URI.to_string(%URI{
+      ...>   authority: "foo@example.com:80",
+      ...>   userinfo: "bar",
+      ...>   host: "example.org",
+      ...>   port: 81
+      ...> })
       "//bar@example.org:81"
 
   """
@@ -504,10 +534,10 @@ defmodule URI do
 
   ## Examples
 
-      iex> URI.merge(URI.parse("http://google.com"), "/query") |> to_string
+      iex> URI.merge(URI.parse("http://google.com"), "/query") |> to_string()
       "http://google.com/query"
 
-      iex> URI.merge("http://example.com", "http://google.com") |> to_string
+      iex> URI.merge("http://example.com", "http://google.com") |> to_string()
       "http://google.com"
 
   """

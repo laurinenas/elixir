@@ -10,8 +10,8 @@ defmodule Mix.Tasks.App.Start do
 
   The application is started by default as temporary. In case
   `:start_permanent` is set to `true` in your project configuration
-  or the `--permanent` flag is given, it is started as permanent,
-  which guarantees the node will shutdown if the application
+  or the `--permanent` option is given, it is started as permanent,
+  which guarantees the node will shut down if the application
   crashes permanently.
 
   ## Configuration
@@ -46,6 +46,7 @@ defmodule Mix.Tasks.App.Start do
     preload_modules: :boolean
   ]
 
+  @impl true
   def run(args) do
     Mix.Project.get!()
     config = Mix.Project.config()
@@ -167,7 +168,7 @@ defmodule Mix.Tasks.App.Start do
   end
 
   defp check_configured(loaded) do
-    configured = Mix.ProjectStack.configured_applications()
+    configured = Mix.ProjectStack.config_apps()
 
     for app <- configured -- loaded, :code.lib_dir(app) == {:error, :bad_name} do
       Mix.shell().error("""

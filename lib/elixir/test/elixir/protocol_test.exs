@@ -92,7 +92,7 @@ defmodule ProtocolTest do
     assert Sample.impl_for(%NoImplStruct{}) == nil
   end
 
-  test "protocol implementation with any and structs fallback" do
+  test "protocol implementation with Any and struct fallbacks" do
     assert WithAny.impl_for(%NoImplStruct{}) == WithAny.Any
     # Derived
     assert WithAny.impl_for(%ImplStruct{}) == WithAny.Any
@@ -102,7 +102,7 @@ defmodule ProtocolTest do
   end
 
   test "protocol not implemented" do
-    message = "protocol ProtocolTest.Sample not implemented for :foo"
+    message = "protocol ProtocolTest.Sample not implemented for :foo of type Atom"
 
     assert_raise Protocol.UndefinedError, message, fn ->
       sample = Sample
@@ -123,8 +123,10 @@ defmodule ProtocolTest do
       end
     )
 
-    docs = Code.get_docs(SampleDocsProto, :docs)
-    assert {{:ok, 1}, _, :def, [{:term, _, nil}], "Ok"} = List.keyfind(docs, {:ok, 1}, 0)
+    {:docs_v1, _, _, _, _, _, docs} = Code.fetch_docs(SampleDocsProto)
+
+    assert {{:function, :ok, 1}, _, ["ok(term)"], %{"en" => "Ok"}, _} =
+             List.keyfind(docs, {:function, :ok, 1}, 0)
 
     deprecated = SampleDocsProto.__info__(:deprecated)
     assert [{{:ok, 1}, "Reason"}] = deprecated
@@ -378,11 +380,11 @@ defmodule Protocol.ConsolidationTest do
   end
 
   test "consolidation keeps docs" do
-    {:ok, {Sample, [{'ExDc', docs_bin}]}} = :beam_lib.chunks(@sample_binary, ['ExDc'])
-    {:elixir_docs_v1, docs} = :erlang.binary_to_term(docs_bin)
-    ok_doc = Keyword.get(docs, :docs) |> List.keyfind({:ok, 1}, 0)
+    {:ok, {Sample, [{'Docs', docs_bin}]}} = :beam_lib.chunks(@sample_binary, ['Docs'])
+    {:docs_v1, _, _, _, _, _, docs} = :erlang.binary_to_term(docs_bin)
+    ok_doc = List.keyfind(docs, {:function, :ok, 1}, 0)
 
-    assert {{:ok, 1}, _, :def, [{:term, _, nil}], "Ok"} = ok_doc
+    assert {{:function, :ok, 1}, _, ["ok(term)"], %{"en" => "Ok"}, _} = ok_doc
   end
 
   test "consolidation keeps deprecated" do
@@ -412,7 +414,7 @@ defmodule Protocol.ConsolidationTest do
     assert Sample.__protocol__(:consolidated?)
     assert Sample.__protocol__(:impls) == {:consolidated, [ImplStruct]}
     assert WithAny.__protocol__(:consolidated?)
-    assert WithAny.__protocol__(:impls) == {:consolidated, [Any, Map, ImplStruct]}
+    assert WithAny.__protocol__(:impls) == {:consolidated, [Any, ImplStruct, Map]}
   end
 
   test "consolidation extracts protocols" do
@@ -429,38 +431,12 @@ defmodule Protocol.ConsolidationTest do
 
   test "protocol not implemented" do
     message =
-      "protocol Protocol.ConsolidationTest.Sample not implemented for :foo. " <>
-        "This protocol is implemented for: Protocol.ConsolidationTest.ImplStruct"
+      "protocol Protocol.ConsolidationTest.Sample not implemented for :foo of type Atom. " <>
+        "This protocol is implemented for the following type(s): Protocol.ConsolidationTest.ImplStruct"
 
     assert_raise Protocol.UndefinedError, message, fn ->
       sample = Sample
       sample.ok(:foo)
-    end
-  end
-
-  test "consolidation updates __protocol__/1 spec" do
-    {:ok, {Sample, [{:abstract_code, {:raw_abstract_v1, forms}}]}} =
-      :beam_lib.chunks(@sample_binary, [:abstract_code])
-
-    for {:attribute, _line, :spec, {{:__protocol__, 1}, specs}} <- forms,
-        {:type, _line, :fun, [{:type, _, :product, [{:atom, _, clause}]}, return_type]} <- specs do
-      # Only check that :consolidated? and :impls types changed after consolidation.
-      # This prevents underspec warnings in dialyzer on consolidated protocols.
-      case clause do
-        :consolidated? ->
-          assert {:atom, _, true} = return_type
-
-        :impls ->
-          {:type, _, :tuple, tuple_args} = return_type
-
-          assert [
-                   {:atom, _, :consolidated},
-                   {:type, _, :list, [{:type, _, :union, [{:atom, _, ImplStruct}]}]}
-                 ] = tuple_args
-
-        _ ->
-          :ok
-      end
     end
   end
 end

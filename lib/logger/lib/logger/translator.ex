@@ -14,7 +14,7 @@ defmodule Logger.Translator do
     * `min_level` - the current Logger level
     * `level` - the level of the message being translated
     * `kind` - if the message is a `:report` or `:format`
-    * `message` - the message to format. If it is :report`, it is a tuple
+    * `message` - the message to format. If it is `:report`, it is a tuple
       with `{report_type, report_data}`, if it is `:format`, it is a
       tuple with `{format_message, format_args}`.
 
@@ -80,51 +80,56 @@ defmodule Logger.Translator do
   end
 
   ## Erlang/OTP 20 and before
+  # TODO: These clauses can be removed when we support only Erlang/OTP 21+.
 
   def translate(min_level, :error, :format, message) do
     opts = Application.get_env(:logger, :translator_inspect_opts)
 
     case message do
       {'** Generic server ' ++ _, [name, last, state, reason | client]} ->
-        {formatted, _reason} = format_reason(reason)
+        {formatted, reason} = format_reason(reason)
+        metadata = [crash_reason: reason] ++ registered_name(name)
 
         msg =
           ["GenServer #{inspect(name)} terminating", formatted] ++
             ["\nLast message#{format_from(client)}: #{inspect(last, opts)}"]
 
         if min_level == :debug do
-          {:ok, [msg, "\nState: #{inspect(state, opts)}" | format_client(client)]}
+          msg = [msg, "\nState: #{inspect(state, opts)}" | format_client(client)]
+          {:ok, msg, metadata}
         else
-          {:ok, msg}
+          {:ok, msg, metadata}
         end
 
       {'** gen_event handler ' ++ _, [name, manager, last, state, reason]} ->
-        {formatted, _reason} = format_reason(reason)
+        {formatted, reason} = format_reason(reason)
+        metadata = [crash_reason: reason] ++ registered_name(manager)
 
         msg =
-          ["GenEvent handler #{inspect(name)} installed in #{inspect(manager)} terminating"] ++
+          [":gen_event handler #{inspect(name)} installed in #{inspect(manager)} terminating"] ++
             [formatted, "\nLast message: #{inspect(last, opts)}"]
 
         if min_level == :debug do
-          {:ok, [msg | "\nState: #{inspect(state, opts)}"]}
+          {:ok, [msg | "\nState: #{inspect(state, opts)}"], metadata}
         else
-          {:ok, msg}
+          {:ok, msg, metadata}
         end
 
       {'** Task ' ++ _, [name, starter, function, args, reason]} ->
-        {formatted, _reason} = format_reason(reason)
+        {formatted, reason} = format_reason(reason)
+        metadata = [crash_reason: reason] ++ registered_name(name)
 
         msg =
           ["Task #{inspect(name)} started from #{inspect(starter)} terminating"] ++
             [formatted, "\nFunction: #{inspect(function, opts)}"] ++
             ["\n    Args: #{inspect(args, opts)}"]
 
-        {:ok, msg}
+        {:ok, msg, metadata}
 
       {'Error in process ' ++ _, [pid, {reason, stack}]} ->
+        reason = Exception.normalize(:error, reason, stack)
         msg = ["Process ", inspect(pid), " raised an exception" | format(:error, reason, stack)]
-
-        {:ok, msg}
+        {:ok, msg, [crash_reason: exit_reason(:error, reason, stack)]}
 
       _ ->
         :none
@@ -175,16 +180,18 @@ defmodule Logger.Translator do
       state: state
     } = report
 
-    {formatted, _reason} = format_reason(reason)
+    {formatted, reason} = format_reason(reason)
+    metadata = [crash_reason: reason] ++ registered_name(name)
 
     msg =
       ["GenServer ", inspect(name), " terminating", formatted] ++
         ["\nLast message", format_last_message_from(client), ": ", inspect(last, inspect_opts)]
 
     if min_level == :debug do
-      {:ok, [msg, "\nState: ", inspect(state, inspect_opts) | format_client_info(client)]}
+      msg = [msg, "\nState: ", inspect(state, inspect_opts) | format_client_info(client)]
+      {:ok, msg, metadata}
     else
-      {:ok, msg}
+      {:ok, msg, metadata}
     end
   end
 
@@ -205,16 +212,17 @@ defmodule Logger.Translator do
         _ -> reason
       end
 
-    {formatted, _reason} = format_reason(reason)
+    {formatted, reason} = format_reason(reason)
+    metadata = [crash_reason: reason] ++ registered_name(name)
 
     msg =
-      ["GenEvent handler ", inspect(handler), " installed in ", inspect(name), " terminating"] ++
+      [":gen_event handler ", inspect(handler), " installed in ", inspect(name), " terminating"] ++
         [formatted, "\nLast message: ", inspect(last, inspect_opts)]
 
     if min_level == :debug do
-      {:ok, [msg, "\nState: ", inspect(state, inspect_opts)]}
+      {:ok, [msg, "\nState: ", inspect(state, inspect_opts)], metadata}
     else
-      {:ok, msg}
+      {:ok, msg, metadata}
     end
   end
 
@@ -315,7 +323,7 @@ defmodule Logger.Translator do
   defp sup_context(:start_error), do: "failed to start"
   defp sup_context(:child_terminated), do: "terminated"
   defp sup_context(:shutdown), do: "caused shutdown"
-  defp sup_context(:shutdown_error), do: "shutdown abnormally"
+  defp sup_context(:shutdown_error), do: "shut down abnormally"
 
   defp child_info(min_level, [{:mfargs, {mod, fun, args}} | debug]) do
     ["\nStart Call: ", format_mfa(mod, fun, args) | child_debug(min_level, debug)]
@@ -331,6 +339,10 @@ defmodule Logger.Translator do
     ["\nStart Module: ", inspect(mod) | child_debug(min_level, debug)]
   end
 
+  defp child_info(_min_level, _child) do
+    []
+  end
+
   defp child_debug(:debug, restart_type: restart, shutdown: shutdown, child_type: type) do
     ["\nRestart: ", inspect(restart), "\nShutdown: ", inspect(shutdown)] ++
       ["\nType: ", inspect(type)]
@@ -340,45 +352,52 @@ defmodule Logger.Translator do
     []
   end
 
-  defp report_crash(min_level, [
-         [
-           {:initial_call, _} = initial_call,
-           {:pid, pid},
-           {:registered_name, name},
-           {:error_info, {kind, exception, stack}} | crashed
-         ],
-         linked
-       ]) do
-    reason = Exception.normalize(kind, exception, stack)
-
-    msg =
-      ["Process ", crash_name(pid, name), " terminating", format(kind, reason, stack)] ++
-        [crash_info(min_level, [initial_call | crashed])] ++ crash_linked(min_level, linked)
-
-    {:ok, msg}
+  defp report_crash(min_level, [[{:initial_call, initial_call} | crashed], linked]) do
+    mfa = initial_call_to_mfa(initial_call)
+    report_crash(min_level, crashed, [{:initial_call, mfa}], linked)
   end
 
-  defp report_crash(min_level, [
-         [
-           {:pid, pid},
-           {:registered_name, name},
-           {:error_info, {kind, exception, stack}} | crashed
-         ],
-         linked
-       ]) do
-    reason = Exception.normalize(kind, exception, stack)
-
-    msg =
-      ["Process ", crash_name(pid, name), " terminating", format(kind, reason, stack)] ++
-        [crash_info(min_level, crashed), crash_linked(min_level, linked)]
-
-    {:ok, msg}
+  defp report_crash(min_level, [crashed, linked]) do
+    report_crash(min_level, crashed, [], linked)
   end
+
+  defp report_crash(min_level, crashed, extra, linked) do
+    [
+      {:pid, pid},
+      {:registered_name, name},
+      {:error_info, {kind, reason, stack}} | crashed
+    ] = crashed
+
+    dictionary = crashed[:dictionary]
+    reason = Exception.normalize(kind, reason, stack)
+
+    case Keyword.get(dictionary, :logger_metadata, {true, []}) do
+      {false, _} ->
+        :skip
+
+      {true, user_metadata} ->
+        msg =
+          ["Process ", crash_name(pid, name), " terminating", format(kind, reason, stack)] ++
+            [crash_info(min_level, extra ++ crashed, [?\n]), crash_linked(min_level, linked)]
+
+        extra =
+          if ancestors = crashed[:ancestors], do: [{:ancestors, ancestors} | extra], else: extra
+
+        extra =
+          if callers = dictionary[:"$callers"], do: [{:callers, callers} | extra], else: extra
+
+        extra = [{:crash_reason, exit_reason(kind, reason, stack)} | extra]
+        {:ok, msg, registered_name(name) ++ extra ++ user_metadata}
+    end
+  end
+
+  defp initial_call_to_mfa({:supervisor, module, _}), do: {module, :init, 1}
+  defp initial_call_to_mfa({:supervisor_bridge, module, _}), do: {module, :init, 1}
+  defp initial_call_to_mfa({mod, fun, args}) when is_list(args), do: {mod, fun, length(args)}
+  defp initial_call_to_mfa(mfa), do: mfa
 
   defp crash_name(pid, []), do: inspect(pid)
   defp crash_name(pid, name), do: [inspect(name), " (", inspect(pid), ?)]
-
-  defp crash_info(min_level, info, prefix \\ [?\n])
 
   defp crash_info(min_level, [{:initial_call, {mod, fun, args}} | info], prefix) do
     [prefix, "Initial Call: ", crash_call(mod, fun, args) | crash_info(min_level, info, prefix)]
@@ -495,7 +514,6 @@ defmodule Logger.Translator do
   end
 
   # Erlang processes rewrite the :undef error to these reasons when logging
-  # TODO: This clause can be removed when we support only Erlang/OTP 21+.
   @gen_undef [:"module could not be loaded", :"function not exported"]
 
   defp maybe_normalize(undef, [{mod, fun, args, _info} | _] = stacktrace)
@@ -539,11 +557,18 @@ defmodule Logger.Translator do
     end
   end
 
+  defp registered_name(name) when is_atom(name), do: [registered_name: name]
+  defp registered_name(_name), do: []
+
   defp format_mfa(mod, fun, :undefined),
     do: [inspect(mod), ?., Code.Identifier.inspect_as_function(fun) | "/?"]
 
   defp format_mfa(mod, fun, args),
     do: Exception.format_mfa(mod, fun, args)
+
+  defp exit_reason(:exit, reason, stack), do: {reason, stack}
+  defp exit_reason(:error, reason, stack), do: {reason, stack}
+  defp exit_reason(:throw, value, stack), do: {{:nocatch, value}, stack}
 
   ## Deprecated helpers
 

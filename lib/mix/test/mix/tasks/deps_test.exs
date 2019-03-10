@@ -120,7 +120,9 @@ defmodule Mix.Tasks.DepsTest do
     Mix.Project.push(DepsApp)
 
     in_fixture("deps_status", fn ->
-      File.cd!("deps/ok", fn -> System.cmd("git", ["init"]) end)
+      File.cd!("deps/ok", fn ->
+        System.cmd("git", ~w[-c core.hooksPath='' init])
+      end)
 
       Mix.Tasks.Deps.run([])
       assert_received {:mix_shell, :info, ["* ok (https://github.com/elixir-lang/ok.git) (mix)"]}
@@ -238,6 +240,36 @@ defmodule Mix.Tasks.DepsTest do
 
       Mix.Tasks.Deps.Loadpaths.run([])
       refute File.exists?("_build/dev/lib/ok/ebin/ok.app")
+      assert File.exists?("_build/dev/lib/sample/ebin/sample.app")
+    end)
+  end
+
+  test "does not load or prune builds with --no-load-deps" do
+    Mix.Project.push(SuccessfulDepsApp)
+
+    in_fixture("deps_status", fn ->
+      # Start from scratch!
+      File.rm_rf("_build")
+
+      Mix.Tasks.Deps.Compile.run([])
+      Mix.Tasks.Deps.Loadpaths.run([])
+      assert File.exists?("_build/dev/lib/ok/ebin/ok.app")
+      assert File.exists?("_build/dev/lib/ok/priv/sample")
+
+      Mix.Tasks.Compile.run([])
+      assert to_charlist(Path.expand("_build/dev/lib/ok/ebin/")) in :code.get_path()
+      assert File.exists?("_build/dev/lib/sample/ebin/sample.app")
+
+      # Remove the deps without build_path
+      Mix.ProjectStack.post_config(deps: [])
+      Mix.ProjectStack.clear_cache()
+      Mix.Project.pop()
+      Mix.Project.push(SuccessfulDepsApp)
+      Code.delete_path("_build/dev/lib/ok/ebin")
+
+      Mix.Tasks.Deps.Loadpaths.run(["--no-load-deps"])
+      refute to_charlist(Path.expand("_build/dev/lib/ok/ebin/")) in :code.get_path()
+      assert File.exists?("_build/dev/lib/ok/ebin/ok.app")
       assert File.exists?("_build/dev/lib/sample/ebin/sample.app")
     end)
   end
@@ -679,7 +711,7 @@ defmodule Mix.Tasks.DepsTest do
     end
   end
 
-  test "does not compile deps that have explicit flag" do
+  test "does not compile deps that have explicit option" do
     Mix.Project.push(NonCompilingDeps)
 
     in_fixture("deps_status", fn ->
@@ -746,7 +778,7 @@ defmodule Mix.Tasks.DepsTest do
 
       message =
         "\"mix deps.clean\" expects dependencies as arguments or " <>
-          "a flag indicating which dependencies to clean. " <>
+          "an option indicating which dependencies to clean. " <>
           "The --all option will clean all dependencies while " <>
           "the --unused option cleans unused dependencies"
 

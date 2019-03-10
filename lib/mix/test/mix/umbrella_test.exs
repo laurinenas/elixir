@@ -80,7 +80,11 @@ defmodule Mix.UmbrellaTest do
         defmodule Elixir.Mix.Tasks.Umbrella.Recur do
           use Mix.Task
           @recursive true
-          def run(_), do: Mix.Task.run("compile", ["--verbose"])
+
+          def run(_) do
+            assert Mix.Task.recursing?()
+            Mix.Task.run("compile", ["--verbose"])
+          end
         end
 
         Mix.Task.run("umbrella.recur")
@@ -197,7 +201,7 @@ defmodule Mix.UmbrellaTest do
     end)
   end
 
-  test "finds umbrella sibling dependencies conflicts with :in_umbrella" do
+  test "umbrella sibling dependencies conflicts with :in_umbrella" do
     in_fixture("umbrella_dep/deps/umbrella", fn ->
       Mix.Project.in_project(:umbrella, ".", fn _ ->
         File.write!("apps/bar/mix.exs", """
@@ -261,7 +265,7 @@ defmodule Mix.UmbrellaTest do
     Mix.Project.push(CycleDeps)
 
     in_fixture("umbrella_dep", fn ->
-      assert Enum.map(Mix.Dep.loaded([]), & &1.app) == [:foo, :bar, :umbrella]
+      assert Enum.map(Mix.Dep.load_on_environment([]), & &1.app) == [:foo, :bar, :umbrella]
     end)
   end
 
@@ -299,7 +303,7 @@ defmodule Mix.UmbrellaTest do
         end
         """)
 
-        assert Enum.map(Mix.Dep.loaded([]), & &1.app) == [:a, :b, :bar, :foo]
+        assert Enum.map(Mix.Dep.load_on_environment([]), & &1.app) == [:a, :b, :bar, :foo]
       end)
     end)
   end
@@ -326,7 +330,7 @@ defmodule Mix.UmbrellaTest do
     end)
   end
 
-  test "recompiles after path dependency changes" do
+  test "recompiles after runtime path dependency changes" do
     in_fixture("umbrella_dep/deps/umbrella/apps", fn ->
       Mix.Project.in_project(:bar, "bar", fn _ ->
         Mix.Task.run("compile", ["--verbose"])
@@ -337,15 +341,17 @@ defmodule Mix.UmbrellaTest do
 
         # Noop by default
         assert Mix.Tasks.Compile.Elixir.run(["--verbose"]) == {:noop, []}
+        Mix.Shell.Process.flush()
 
-        # Noop when there is no runtime dependency
+        # Ok but no compilation when there is no runtime dependency
         mtime = File.stat!("_build/dev/lib/bar/.mix/compile.elixir").mtime
         ensure_touched("_build/dev/lib/foo/ebin/Elixir.Foo.beam", mtime)
 
         mtime = File.stat!("_build/dev/lib/bar/.mix/compile.elixir").mtime
         ensure_touched("_build/dev/lib/foo/.mix/compile.elixir", mtime)
 
-        assert Mix.Tasks.Compile.Elixir.run(["--verbose"]) == {:noop, []}
+        assert Mix.Tasks.Compile.Elixir.run(["--verbose"]) == {:ok, []}
+        refute_received {:mix_shell, :info, ["Compiled " <> _]}
 
         # Add runtime dependency
         File.write!("lib/bar.ex", """
@@ -355,27 +361,49 @@ defmodule Mix.UmbrellaTest do
         """)
 
         assert Mix.Tasks.Compile.Elixir.run(["--verbose"]) == {:ok, []}
-        assert_receive {:mix_shell, :info, ["Compiled lib/bar.ex"]}
+        assert_received {:mix_shell, :info, ["Compiled lib/bar.ex"]}
+      end)
+    end)
+  end
 
-        # Noop for runtime dependencies
-        mtime = File.stat!("_build/dev/lib/bar/.mix/compile.elixir").mtime
-        ensure_touched("_build/dev/lib/foo/ebin/Elixir.Foo.beam", mtime)
-
-        mtime = File.stat!("_build/dev/lib/bar/.mix/compile.elixir").mtime
-        ensure_touched("_build/dev/lib/foo/.mix/compile.elixir", mtime)
-
-        assert Mix.Tasks.Compile.Elixir.run(["--verbose"]) == {:noop, []}
+  test "recompiles after compile time path dependency changes" do
+    in_fixture("umbrella_dep/deps/umbrella/apps", fn ->
+      Mix.Project.in_project(:bar, "bar", fn _ ->
+        Mix.Task.run("compile", ["--verbose"])
 
         # Add compile time dependency
         File.write!("lib/bar.ex", "defmodule Bar, do: Foo.foo")
+
         assert Mix.Tasks.Compile.Elixir.run(["--verbose"]) == {:ok, []}
         assert_receive {:mix_shell, :info, ["Compiled lib/bar.ex"]}
 
         # Recompiles for compile time dependencies
         mtime = File.stat!("_build/dev/lib/bar/.mix/compile.elixir").mtime
         ensure_touched("_build/dev/lib/foo/ebin/Elixir.Foo.beam", mtime)
+        ensure_touched("_build/dev/lib/foo/.mix/compile.elixir", mtime)
 
+        assert Mix.Tasks.Compile.Elixir.run(["--verbose"]) == {:ok, []}
+        assert_receive {:mix_shell, :info, ["Compiled lib/bar.ex"]}
+      end)
+    end)
+  end
+
+  test "recompiles after struct path dependency changes" do
+    in_fixture("umbrella_dep/deps/umbrella/apps", fn ->
+      Mix.Project.in_project(:bar, "bar", fn _ ->
+        File.write!("../foo/lib/foo.ex", "defmodule Foo, do: defstruct [:bar]")
+
+        Mix.Task.run("compile", ["--verbose"])
+
+        # Add struct dependency
+        File.write!("lib/bar.ex", "defmodule Bar, do: %Foo{bar: true}")
+
+        assert Mix.Tasks.Compile.Elixir.run(["--verbose"]) == {:ok, []}
+        assert_receive {:mix_shell, :info, ["Compiled lib/bar.ex"]}
+
+        # Recompiles for struct dependencies
         mtime = File.stat!("_build/dev/lib/bar/.mix/compile.elixir").mtime
+        ensure_touched("_build/dev/lib/foo/ebin/Elixir.Foo.beam", mtime)
         ensure_touched("_build/dev/lib/foo/.mix/compile.elixir", mtime)
 
         assert Mix.Tasks.Compile.Elixir.run(["--verbose"]) == {:ok, []}

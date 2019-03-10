@@ -1,11 +1,11 @@
 defmodule HashDict do
   @moduledoc """
-  WARNING: this module is deprecated.
+  Tuple-based HashDict implementation.
 
-  Use the `Map` module instead.
+  This module is deprecated. Use the `Map` module instead.
   """
 
-  # TODO: Remove by 2.0
+  @moduledoc deprecated: "Use Map instead"
 
   use Dict
 

@@ -1,6 +1,6 @@
 defmodule Dict do
   @moduledoc ~S"""
-  WARNING: this module is deprecated.
+  Generic API for dictionaries.
 
   If you need a general dictionary, use the `Map` module.
   If you need to manipulate keyword lists, use `Keyword`.
@@ -9,14 +9,14 @@ defmodule Dict do
   `new` function in the respective modules.
   """
 
+  @moduledoc deprecated: "Use Map or Keyword modules instead"
+
   @type key :: any
   @type value :: any
   @type t :: list | map
 
   message =
     "Use the Map module for working with maps or the Keyword module for working with keyword lists"
-
-  # TODO: Remove by 2.0
 
   @deprecated message
   defmacro __using__(_) do
@@ -293,7 +293,7 @@ defmodule Dict do
   end
 
   @deprecated message
-  @spec fetch!(t, key) :: value | no_return
+  @spec fetch!(t, key) :: value
   def fetch!(dict, key) do
     target(dict).fetch!(dict, key)
   end

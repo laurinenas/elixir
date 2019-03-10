@@ -35,6 +35,11 @@ defmodule ExUnit.Formatter do
     * `{:case_finished, test_module}` -
       a test module has finished. See `ExUnit.TestCase` for details.
 
+  The full ExUnit configuration is passed as the argument to `init/1` when the
+  formatters are started. If you need to do runtime configuration of a
+  formatter, you can add any configuration needed by using `ExUnit.configure/1`
+  or `ExUnit.start/1`, and this will then be included in the options passed to
+  the GenServer's `init/1` callback.
   """
 
   @type id :: term
@@ -104,8 +109,8 @@ defmodule ExUnit.Formatter do
   @spec format_filters(keyword, atom) :: String.t()
   def format_filters(filters, type) do
     case type do
-      :include -> "Including tags: #{inspect(filters)}"
       :exclude -> "Excluding tags: #{inspect(filters)}"
+      :include -> "Including tags: #{inspect(filters)}"
     end
   end
 
@@ -148,8 +153,8 @@ defmodule ExUnit.Formatter do
     |> make_into_lines(counter_padding)
   end
 
-  # TODO: Deprecate on Elixir v1.8
   @doc false
+  @deprecated "Use ExUnit.Formatter.format_test_all_failure/5 instead"
   def format_test_case_failure(test_case, failures, counter, width, formatter) do
     format_test_all_failure(test_case, failures, counter, width, formatter)
   end
@@ -391,7 +396,8 @@ defmodule ExUnit.Formatter do
     "#{counter}) #{msg}"
   end
 
-  defp test_module_info(msg, nil), do: msg <> "failure on setup_all callback, test invalidated\n"
+  defp test_module_info(msg, nil),
+    do: msg <> "failure on setup_all callback, all tests have been invalidated\n"
 
   defp test_module_info(msg, formatter),
     do: test_module_info(formatter.(:test_module_info, msg), nil)

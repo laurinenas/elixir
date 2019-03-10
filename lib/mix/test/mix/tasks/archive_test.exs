@@ -51,6 +51,19 @@ defmodule Mix.Tasks.ArchiveTest do
     assert has_zip_file?('archive-0.1.0.ez', 'archive-0.1.0/ebin/archive.app')
   end
 
+  test "archive install --force" do
+    in_fixture("archive", fn ->
+      Mix.Tasks.Archive.Build.run(["--no-elixir-version-check"])
+      Mix.Tasks.Archive.Install.run(["--force"])
+
+      message = "Generated archive \"archive-0.1.0.ez\" with MIX_ENV=dev"
+      assert_received {:mix_shell, :info, [^message]}
+
+      Mix.Tasks.Archive.Uninstall.run(["archive-0.1.0", "--force"])
+      refute File.dir?(tmp_path("userhome/.mix/archives/archive-0.1.0/archive-0.1.0/ebin"))
+    end)
+  end
+
   test "archive install" do
     in_fixture("archive", fn ->
       # Build and install archive
@@ -120,6 +133,20 @@ defmodule Mix.Tasks.ArchiveTest do
     end
   end
 
+  test "archive install timeout" do
+    message = ~r[request timed out after 0ms]
+
+    send(self(), {:mix_shell_input, :yes?, true})
+
+    assert_raise Mix.Error, message, fn ->
+      Mix.Tasks.Archive.Install.run([
+        "http://10.0.0.0/unlikely-to-exist-0.1.0.ez",
+        "--timeout",
+        "0"
+      ])
+    end
+  end
+
   test "archive update" do
     in_fixture("archive", fn ->
       # Install previous version
@@ -170,6 +197,10 @@ defmodule Mix.Tasks.ArchiveTest do
       send(self(), {:mix_shell_input, :yes?, true})
       Mix.Tasks.Archive.Uninstall.run(["archive-0.2.0"])
       refute File.dir?(tmp_path("userhome/.mix/archives/archive-0.2.0/archive-0.2.0/ebin"))
+
+      # Check old paths are unloaded
+      paths = Enum.map(:code.get_path(), &List.to_string/1)
+      refute tmp_path("userhome/.mix/archives/archive-0.1.0/archive-0.1.0/ebin") in paths
     end)
   end
 

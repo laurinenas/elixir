@@ -51,7 +51,7 @@ defmodule Mix.Compilers.Test do
         {:ok, results}
       catch
         kind, reason ->
-          # In case there is an error, shutdown the runner task
+          # In case there is an error, shut down the runner task
           # before the error propagates up and trigger links.
           Task.shutdown(task)
           :erlang.raise(kind, reason, __STACKTRACE__)
@@ -69,9 +69,9 @@ defmodule Mix.Compilers.Test do
     removed =
       for source(source: source) <- all_sources, source not in matched_test_files, do: source
 
-    configs = Mix.Project.config_files()
+    config_mtime = Mix.Project.config_mtime()
     test_helpers = Enum.map(test_paths, &Path.join(&1, "test_helper.exs"))
-    force = opts[:force] || Mix.Utils.stale?(test_helpers ++ configs, [modified])
+    force = opts[:force] || Mix.Utils.stale?([config_mtime | test_helpers], [modified])
 
     changed =
       if force do

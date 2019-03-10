@@ -15,8 +15,8 @@ defmodule Logger.Formatter do
 
   The valid parameters you can use are:
 
-    * `$time`     - time the log message was sent
-    * `$date`     - date the log message was sent
+    * `$time`     - the time the log message was sent
+    * `$date`     - the date the log message was sent
     * `$message`  - the log message
     * `$level`    - the log level
     * `$node`     - the node that prints the message
@@ -47,7 +47,7 @@ defmodule Logger.Formatter do
   @replacement "�"
 
   @doc """
-  Prunes non-valid UTF-8 codepoints.
+  Prunes non-valid UTF-8 code points.
 
   Typically called after formatting when the data cannot be printed.
   """
@@ -163,7 +163,7 @@ defmodule Logger.Formatter do
 
   defp output(:metadata, _, _, _, meta) do
     Enum.map(meta, fn {key, val} ->
-      [to_string(key), ?=, metadata(val), ?\s]
+      [to_string(key), ?=, metadata(key, val), ?\s]
     end)
   end
 
@@ -178,16 +178,21 @@ defmodule Logger.Formatter do
   defp levelpad(:warn), do: " "
   defp levelpad(:error), do: ""
 
-  defp metadata(pid) when is_pid(pid) do
+  defp metadata(:initial_call, {mod, fun, arity})
+       when is_atom(mod) and is_atom(fun) and is_integer(arity) do
+    Exception.format_mfa(mod, fun, arity)
+  end
+
+  defp metadata(_, pid) when is_pid(pid) do
     :erlang.pid_to_list(pid)
   end
 
-  defp metadata(ref) when is_reference(ref) do
+  defp metadata(_, ref) when is_reference(ref) do
     '#Ref' ++ rest = :erlang.ref_to_list(ref)
     rest
   end
 
-  defp metadata(atom) when is_atom(atom) do
+  defp metadata(_, atom) when is_atom(atom) do
     case Atom.to_string(atom) do
       "Elixir." <> rest -> rest
       "nil" -> ""
@@ -195,5 +200,5 @@ defmodule Logger.Formatter do
     end
   end
 
-  defp metadata(other), do: to_string(other)
+  defp metadata(_, other), do: to_string(other)
 end

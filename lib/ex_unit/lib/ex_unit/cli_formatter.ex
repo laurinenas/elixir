@@ -150,11 +150,13 @@ defmodule ExUnit.CLIFormatter do
 
     print_failure(formatted, config)
 
-    test_counter =
-      Enum.reduce(test_module.tests, config.test_counter, &update_test_counter(&2, &1))
+    {:noreply, config}
+  end
 
-    failure_counter = config.failure_counter + tests_length
-    config = %{config | test_counter: test_counter, failure_counter: failure_counter}
+  def handle_cast(:max_failures_reached, config) do
+    "--max-failures reached, aborting test suite"
+    |> failure(config)
+    |> IO.write()
 
     {:noreply, config}
   end
@@ -196,8 +198,8 @@ defmodule ExUnit.CLIFormatter do
     end
   end
 
-  defp update_test_counter(test_counter, %{tags: %{type: type}}) do
-    Map.update(test_counter, type, 1, &(&1 + 1))
+  defp update_test_counter(test_counter, %{tags: %{test_type: test_type}}) do
+    Map.update(test_counter, test_type, 1, &(&1 + 1))
   end
 
   ## Slowest
@@ -280,8 +282,8 @@ defmodule ExUnit.CLIFormatter do
   end
 
   defp print_filters(include: include, exclude: exclude) do
-    if include != [], do: IO.puts(format_filters(include, :include))
     if exclude != [], do: IO.puts(format_filters(exclude, :exclude))
+    if include != [], do: IO.puts(format_filters(include, :include))
     IO.puts("")
     :ok
   end
@@ -296,8 +298,8 @@ defmodule ExUnit.CLIFormatter do
   end
 
   defp format_test_type_counts(%{test_counter: test_counter} = _config) do
-    Enum.map(test_counter, fn {type, count} ->
-      type_pluralized = pluralize(count, type, ExUnit.plural_rule(type |> to_string()))
+    Enum.map(test_counter, fn {test_type, count} ->
+      type_pluralized = pluralize(count, test_type, ExUnit.plural_rule(test_type |> to_string()))
       "#{count} #{type_pluralized}, "
     end)
   end

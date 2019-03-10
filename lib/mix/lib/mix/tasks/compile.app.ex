@@ -13,9 +13,9 @@ defmodule Mix.Tasks.Compile.App do
   In order to generate the `.app` file, Mix expects your project
   to have both `:app` and `:version` keys. Furthermore, you can
   configure the generated application by defining an `application/0`
-  function in your `mix.exs` with the following options.
+  function in your `mix.exs` that returns a keyword list.
 
-  The most commonly used options are:
+  The most commonly used keys are:
 
     * `:extra_applications` - a list of OTP applications
       your application depends on which are not included in `:deps`
@@ -32,7 +32,7 @@ defmodule Mix.Tasks.Compile.App do
       to this list. It is most useful in detecting conflicts
       between applications that register the same names.
 
-    * `:env` - default values for the application environment.
+    * `:env` - the default values for the application environment.
       The application environment is one of the most common ways
       to configure applications. See the `Application` module for
       mechanisms to read and write to the application environment.
@@ -40,10 +40,13 @@ defmodule Mix.Tasks.Compile.App do
   For example:
 
       def application do
-        [extra_applications: [:logger, :crypto],
-         env: [key: :value],
-         registered: [MyServer]]
+        [
+          extra_applications: [:logger, :crypto],
+          env: [key: :value],
+          registered: [MyServer]
+        ]
       end
+
 
   Other options include:
 
@@ -82,6 +85,8 @@ defmodule Mix.Tasks.Compile.App do
   ## Command line options
 
     * `--force` - forces compilation regardless of modification times
+    * `--compile-path` - where to find `.beam` files and write the
+      resulting `.app` file, defaults to `Mix.Project.compile_path/0`
 
   ## Phases
 
@@ -92,15 +97,19 @@ defmodule Mix.Tasks.Compile.App do
   Let's see an example `MyApp.application/0` function:
 
       def application do
-        [start_phases: [init: [], go: [], finish: []],
-         included_applications: [:my_included_app]]
+        [
+          start_phases: [init: [], go: [], finish: []],
+          included_applications: [:my_included_app]
+        ]
       end
 
   And an example `:my_included_app` defines on its `mix.exs` the function:
 
       def application do
-        [mod: {MyIncludedApp, []},
-         start_phases: [go: []]]
+        [
+          mod: {MyIncludedApp, []},
+          start_phases: [go: []]
+        ]
       end
 
   In this example, the order that the application callbacks are called in is:
@@ -113,8 +122,10 @@ defmodule Mix.Tasks.Compile.App do
       MyApp.start_phase(:finish, :normal, [])
 
   """
+
+  @impl true
   def run(args) do
-    {opts, _, _} = OptionParser.parse(args, switches: [force: :boolean])
+    {opts, _, _} = OptionParser.parse(args, switches: [force: :boolean, compile_path: :string])
 
     project = Mix.Project.get!()
     config = Mix.Project.config()
@@ -125,13 +136,13 @@ defmodule Mix.Tasks.Compile.App do
     validate_app(app)
     validate_version(version)
 
-    path = Mix.Project.compile_path()
+    path = Keyword.get_lazy(opts, :compile_path, &Mix.Project.compile_path/0)
     mods = modules_from(Path.wildcard("#{path}/*.beam")) |> Enum.sort()
 
     target = Path.join(path, "#{app}.app")
-    sources = Mix.Project.config_files()
+    source = Mix.Project.config_mtime()
 
-    if opts[:force] || Mix.Utils.stale?(sources, [target]) || modules_changed?(mods, target) do
+    if opts[:force] || Mix.Utils.stale?([source], [target]) || modules_changed?(mods, target) do
       best_guess = [
         description: to_charlist(config[:description] || app),
         modules: mods,
@@ -208,7 +219,7 @@ defmodule Mix.Tasks.Compile.App do
     apps =
       properties
       |> Keyword.get(:applications)
-      |> Kernel.||(apps_from_prod_non_optional_deps(properties))
+      |> Kernel.||(apps_from_prod_non_optional_deps(properties, config))
       |> normalize_apps(extra, config)
 
     Keyword.put(properties, :applications, apps)
@@ -226,7 +237,7 @@ defmodule Mix.Tasks.Compile.App do
 
       {:id, value} ->
         unless is_list(value) do
-          Mix.raise("Application id (:id) is not a character list, got: " <> inspect(value))
+          Mix.raise("Application ID (:id) is not a character list, got: " <> inspect(value))
         end
 
       {:vsn, value} ->
@@ -313,15 +324,37 @@ defmodule Mix.Tasks.Compile.App do
     end)
   end
 
-  defp apps_from_prod_non_optional_deps(properties) do
+  defp apps_from_prod_non_optional_deps(properties, config) do
     included_applications = Keyword.get(properties, :included_applications, [])
+    non_runtime_deps = non_runtime_deps(config)
 
     for %{app: app, opts: opts, top_level: true} <- Mix.Dep.cached(),
-        Keyword.get(opts, :app, true),
-        Keyword.get(opts, :runtime, true),
         not Keyword.get(opts, :optional, false),
+        not Map.has_key?(non_runtime_deps, app),
         app not in included_applications,
         do: app
+  end
+
+  defp non_runtime_deps(config) do
+    for config_dep <- Keyword.get(config, :deps, []),
+        not runtime_dep?(config_dep),
+        do: {elem(config_dep, 0), true},
+        into: %{}
+  end
+
+  defp runtime_dep?({_app, opts}) when is_list(opts), do: runtime_opts?(opts)
+  defp runtime_dep?({_app, _req, opts}) when is_list(opts), do: runtime_opts?(opts)
+  defp runtime_dep?(_), do: true
+
+  defp runtime_opts?(opts) do
+    Keyword.get(opts, :runtime, true) and Keyword.get(opts, :app, true) and matching_only?(opts)
+  end
+
+  defp matching_only?(opts) do
+    case Keyword.fetch(opts, :only) do
+      {:ok, value} -> Mix.env() in List.wrap(value)
+      :error -> true
+    end
   end
 
   defp normalize_apps(apps, extra, config) do

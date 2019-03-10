@@ -10,8 +10,9 @@ defmodule Mix.Task do
       defmodule Mix.Tasks.Echo do
         use Mix.Task
 
+        @impl Mix.Task
         def run(args) do
-          Mix.shell.info Enum.join(args, " ")
+          Mix.shell().info(Enum.join(args, " "))
         end
       end
 
@@ -122,11 +123,12 @@ defmodule Mix.Task do
 
   Returns the moduledoc or `nil`.
   """
-  @spec moduledoc(task_module) :: String.t() | nil
+  @spec moduledoc(task_module) :: String.t() | nil | false
   def moduledoc(module) when is_atom(module) do
-    case Code.get_docs(module, :moduledoc) do
-      {_line, moduledoc} -> moduledoc
-      nil -> nil
+    case Code.fetch_docs(module) do
+      {:docs_v1, _, _, _, %{"en" => moduledoc}, _, _} -> moduledoc
+      {:docs_v1, _, _, _, :hidden, _, _} -> false
+      _ -> nil
     end
   end
 
@@ -155,6 +157,18 @@ defmodule Mix.Task do
       {:recursive, [setting]} -> setting
       _ -> false
     end
+  end
+
+  @doc """
+  Indicates if the current task is recursing.
+
+  This returns true if a task is marked as recursive
+  and it is being executed inside an umbrella project.
+  """
+  @doc since: "1.8.0"
+  @spec recursing?() :: boolean
+  def recursing?() do
+    Mix.ProjectStack.recursing() != nil
   end
 
   @doc """
@@ -222,7 +236,7 @@ defmodule Mix.Task do
     * `Mix.InvalidTaskError` - raised if the task is not a valid `Mix.Task`
 
   """
-  @spec get!(task_name) :: task_module | no_return
+  @spec get!(task_name) :: task_module
   def get!(task) do
     case fetch(task) do
       {:ok, module} ->
@@ -291,10 +305,12 @@ defmodule Mix.Task do
     if Mix.debug?(), do: output_task_debug_info(task, args, proj)
 
     # 1. If the task is available, we run it.
-    # 2. Otherwise we look for it in dependencies.
-    # 3. Finally, we compile the current project in hope it is available.
+    # 2. Otherwise we load the dependencies without compiling them.
+    # 3. If still not available, we check and compile dependencies.
+    # 4. Finally, we compile the current project in hope it is available.
     module =
-      get_task_or_run(proj, task, fn -> Mix.Task.run("deps.loadpaths") end) ||
+      get_task_or_run(proj, task, fn -> Mix.Task.run("deps.precompile") end) ||
+        get_task_or_run(proj, task, fn -> Mix.Task.run("deps.loadpaths") end) ||
         get_task_or_run(proj, task, fn -> Mix.Project.compile([]) end) || get!(task)
 
     recursive = recursive(module)
@@ -306,7 +322,7 @@ defmodule Mix.Task do
         end)
 
       not recursive && Mix.ProjectStack.recursing() ->
-        Mix.ProjectStack.root(fn -> run(task, args) end)
+        Mix.ProjectStack.on_recursing_root(fn -> run(task, args) end)
 
       true ->
         Mix.TasksServer.put({:task, task, proj})

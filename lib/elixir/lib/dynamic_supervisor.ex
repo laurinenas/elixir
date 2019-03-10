@@ -6,7 +6,7 @@ defmodule DynamicSupervisor do
   that are started in the given order when the supervisor starts. A
   `DynamicSupervisor` starts with no children. Instead, children are
   started on demand via `start_child/2`. When a dynamic supervisor
-  terminates, all children are shutdown at the same time, with no guarantee
+  terminates, all children are shut down at the same time, with no guarantee
   of ordering.
 
   ## Examples
@@ -35,7 +35,7 @@ defmodule DynamicSupervisor do
       Agent.get(agent2, & &1)
       #=> %{}
 
-      DynamicSupervisor.count_children(sup)
+      DynamicSupervisor.count_children(MyApp.DynamicSupervisor)
       #=> %{active: 2, specs: 2, supervisors: 0, workers: 2}
 
   ## Module-based supervisors
@@ -47,18 +47,20 @@ defmodule DynamicSupervisor do
         # Automatically defines child_spec/1
         use DynamicSupervisor
 
-        def start_link(arg) do
-          DynamicSupervisor.start_link(__MODULE__, arg, name: __MODULE__)
+        def start_link(init_arg) do
+          DynamicSupervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
         end
 
         @impl true
-        def init(_arg) do
+        def init(_init_arg) do
           DynamicSupervisor.init(strategy: :one_for_one)
         end
       end
 
   See the `Supervisor` docs for a discussion of when you may want to use
-  module-based supervisors.
+  module-based supervisors. The `@doc` annotation immediately preceding
+  `use DynamicSupervisor` will be attached to the generated `child_spec/1`
+  function.
 
   ## Name registration
 
@@ -76,20 +78,20 @@ defmodule DynamicSupervisor do
       defmodule MySupervisor do
         use Supervisor
 
-        def start_link(arg) do
-          Supervisor.start_link(__MODULE__, arg, name: __MODULE__)
+        def start_link(init_arg) do
+          Supervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
         end
 
         def start_child(foo, bar, baz) do
-          # This will start child by calling MyWorker.start_link(initial_arg, foo, bar, baz)
+          # This will start child by calling MyWorker.start_link(init_arg, foo, bar, baz)
           Supervisor.start_child(__MODULE__, [foo, bar, baz])
         end
 
         @impl true
-        def init(initial_arg) do
+        def init(init_arg) do
           children = [
-            # Or the deprecated: worker(MyWorker, [initial_arg])
-            %{id: MyWorker, start: {MyWorker, :start_link, [initial_arg]})
+            # Or the deprecated: worker(MyWorker, [init_arg])
+            %{id: MyWorker, start: {MyWorker, :start_link, [init_arg]}}
           ]
 
           Supervisor.init(children, strategy: :simple_one_for_one)
@@ -101,8 +103,8 @@ defmodule DynamicSupervisor do
       defmodule MySupervisor do
         use DynamicSupervisor
 
-        def start_link(arg) do
-          DynamicSupervisor.start_link(__MODULE__, arg, name: __MODULE__)
+        def start_link(init_arg) do
+          DynamicSupervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
         end
 
         def start_child(foo, bar, baz) do
@@ -113,10 +115,10 @@ defmodule DynamicSupervisor do
         end
 
         @impl true
-        def init(initial_arg) do
+        def init(init_arg) do
           DynamicSupervisor.init(
             strategy: :one_for_one,
-            extra_arguments: [initial_arg]
+            extra_arguments: [init_arg]
           )
         end
       end
@@ -135,7 +137,7 @@ defmodule DynamicSupervisor do
   Developers typically invoke `DynamicSupervisor.init/1` at the end of
   their init callback to return the proper supervision flags.
   """
-  @callback init(args :: term) :: {:ok, sup_flags()} | :ignore
+  @callback init(init_arg :: term) :: {:ok, sup_flags()} | :ignore
 
   @typedoc "The supervisor flags returned on init"
   @type sup_flags() :: %{
@@ -170,6 +172,7 @@ defmodule DynamicSupervisor do
           | :ignore
           | {:error, {:already_started, pid} | :max_children | term}
 
+  # In this struct, `args` refers to the arguments passed to init/1 (the `init_arg`).
   defstruct [
     :args,
     :extra_arguments,
@@ -188,7 +191,7 @@ defmodule DynamicSupervisor do
 
   See `Supervisor`.
   """
-  @since "1.6.1"
+  @doc since: "1.6.1"
   def child_spec(opts) when is_list(opts) do
     id =
       case Keyword.get(opts, :name, DynamicSupervisor) do
@@ -208,12 +211,14 @@ defmodule DynamicSupervisor do
   defmacro __using__(opts) do
     quote location: :keep, bind_quoted: [opts: opts] do
       @behaviour DynamicSupervisor
+      if Module.get_attribute(__MODULE__, :doc) == nil do
+        @doc """
+        Returns a specification to start this module under a supervisor.
 
-      @doc """
-      Returns a specification to start this module under a supervisor.
+        See `Supervisor`.
+        """
+      end
 
-      See `Supervisor`.
-      """
       def child_spec(arg) do
         default = %{
           id: __MODULE__,
@@ -249,7 +254,7 @@ defmodule DynamicSupervisor do
   process and exits not only on crashes but also if the parent process exits
   with `:normal` reason.
   """
-  @since "1.6.0"
+  @doc since: "1.6.0"
   @spec start_link(options) :: Supervisor.on_start()
   def start_link(options) when is_list(options) do
     keys = [:extra_arguments, :max_children, :max_seconds, :max_restarts, :strategy]
@@ -275,17 +280,18 @@ defmodule DynamicSupervisor do
   name, the supported values are described in the "Name registration"
   section in the `GenServer` module docs.
   """
-  @since "1.6.0"
+  @doc since: "1.6.0"
   @spec start_link(module, term, GenServer.options()) :: Supervisor.on_start()
-  def start_link(mod, args, opts \\ []) do
-    GenServer.start_link(__MODULE__, {mod, args, opts[:name]}, opts)
+  def start_link(mod, init_arg, opts \\ []) do
+    GenServer.start_link(__MODULE__, {mod, init_arg, opts[:name]}, opts)
   end
 
   @doc """
   Dynamically adds a child specification to `supervisor` and starts that child.
 
-  `child_spec` should be a valid child specification. The child process will
-  be started as defined in the child specification.
+  `child_spec` should be a valid child specification as detailed in the
+  "child_spec/1" section of the documentation for `Supervisor`. The child
+  process will be started as defined in the child specification.
 
   If the child process start function returns `{:ok, child}` or `{:ok, child,
   info}`, then child specification and PID are added to the supervisor and
@@ -296,15 +302,15 @@ defmodule DynamicSupervisor do
 
   If the child process start function returns an error tuple or an erroneous
   value, or if it fails, the child specification is discarded and this function
-  returns `{:error, error}` where `error` is a term containing information about
-  the error and child specification.
+  returns `{:error, error}` where `error` is the error or erroneous value
+  returned from child process start function, or failure reason if it fails.
 
   If the supervisor already has N children in a way that N exceeds the amount
   of `:max_children` set on the supervisor initialization (see `init/1`), then
   this function returns `{:error, :max_children}`.
   """
-  @since "1.6.0"
-  @spec start_child(Supervisor.supervisor(), :supervisor.child_spec() | {module, term} | module) ::
+  @doc since: "1.6.0"
+  @spec start_child(Supervisor.supervisor(), Supervisor.child_spec() | {module, term} | module) ::
           on_start_child()
   def start_child(supervisor, {_, _, _, _, _, _} = child_spec) do
     validate_and_start_child(supervisor, child_spec)
@@ -382,7 +388,7 @@ defmodule DynamicSupervisor do
   If successful, this function returns `:ok`. If there is no process with
   the given PID, this function returns `{:error, :not_found}`.
   """
-  @since "1.6.0"
+  @doc since: "1.6.0"
   @spec terminate_child(Supervisor.supervisor(), pid) :: :ok | {:error, :not_found}
   def terminate_child(supervisor, pid) when is_pid(pid) do
     call(supervisor, {:terminate_child, pid})
@@ -399,7 +405,7 @@ defmodule DynamicSupervisor do
 
     * `id` - it is always `:undefined` for dynamic supervisors
 
-    * `child` - the pid of the corresponding child process or the
+    * `child` - the PID of the corresponding child process or the
       atom `:restarting` if the process is about to be restarted
 
     * `type` - `:worker` or `:supervisor` as defined in the child
@@ -408,7 +414,7 @@ defmodule DynamicSupervisor do
     * `modules` - as defined in the child specification
 
   """
-  @since "1.6.0"
+  @doc since: "1.6.0"
   @spec which_children(Supervisor.supervisor()) :: [
           {:undefined, pid | :restarting, :worker | :supervisor, :supervisor.modules()}
         ]
@@ -433,7 +439,7 @@ defmodule DynamicSupervisor do
       is still alive
 
   """
-  @since "1.6.0"
+  @doc since: "1.6.0"
   @spec count_children(Supervisor.supervisor()) :: %{
           specs: non_neg_integer,
           active: non_neg_integer,
@@ -454,20 +460,20 @@ defmodule DynamicSupervisor do
   If the reason is any other than `:normal`, `:shutdown` or
   `{:shutdown, _}`, an error report is logged.
   """
-  @since "1.7.0"
+  @doc since: "1.7.0"
   @spec stop(Supervisor.supervisor(), reason :: term, timeout) :: :ok
   def stop(supervisor, reason \\ :normal, timeout \\ :infinity) do
     GenServer.stop(supervisor, reason, timeout)
   end
 
   @doc """
-  Receives a set of options that initializes a dynamic supervisor.
+  Receives a set of `options` that initializes a dynamic supervisor.
 
   This is typically invoked at the end of the `c:init/1` callback of
-  module-based supervisors. See the sections "Module-based supervisors"
+  module-based supervisors. See the "Module-based supervisors" section
   in the module documentation for more information.
 
-  The options received by this function are also supported by `start_link/2`.
+  The `options` received by this function are also supported by `start_link/2`.
 
   This function returns a tuple containing the supervisor options.
 
@@ -481,7 +487,7 @@ defmodule DynamicSupervisor do
 
     * `:strategy` - the restart strategy option. The only supported
       value is `:one_for_one` which means that no other child is
-      terminate if a child process terminates. You can learn more
+      terminated if a child process terminates. You can learn more
       about strategies in the `Supervisor` module docs.
 
     * `:max_restarts` - the maximum number of restarts allowed in
@@ -492,7 +498,7 @@ defmodule DynamicSupervisor do
 
     * `:max_children` - the maximum amount of children to be running
       under this supervisor at the same time. When `:max_children` is
-      exceeded, `start_child/2` returns `{:error, :dynamic}`. Defaults
+      exceeded, `start_child/2` returns `{:error, :max_children}`. Defaults
       to `:infinity`.
 
     * `:extra_arguments` - arguments that are prepended to the arguments
@@ -500,7 +506,7 @@ defmodule DynamicSupervisor do
       an empty list.
 
   """
-  @since "1.6.0"
+  @doc since: "1.6.0"
   @spec init([init_option]) :: {:ok, sup_flags()}
   def init(options) when is_list(options) do
     unless strategy = options[:strategy] do
@@ -526,11 +532,11 @@ defmodule DynamicSupervisor do
   ## Callbacks
 
   @impl true
-  def init({mod, args, name}) do
+  def init({mod, init_arg, name}) do
     Process.put(:"$initial_call", {:supervisor, mod, 1})
     Process.flag(:trap_exit, true)
 
-    case mod.init(args) do
+    case mod.init(init_arg) do
       {:ok, flags} when is_map(flags) ->
         name =
           cond do
@@ -539,7 +545,7 @@ defmodule DynamicSupervisor do
             is_tuple(name) -> name
           end
 
-        state = %DynamicSupervisor{mod: mod, args: args, name: name}
+        state = %DynamicSupervisor{mod: mod, args: init_arg, name: name}
 
         case init(state, flags) do
           {:ok, state} -> {:ok, state}
@@ -744,8 +750,8 @@ defmodule DynamicSupervisor do
   end
 
   @impl true
-  def code_change(_, %{mod: mod, args: args} = state, _) do
-    case mod.init(args) do
+  def code_change(_, %{mod: mod, args: init_arg} = state, _) do
+    case mod.init(init_arg) do
       {:ok, flags} when is_map(flags) ->
         case init(state, flags) do
           {:ok, state} -> {:ok, state}

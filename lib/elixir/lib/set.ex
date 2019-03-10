@@ -1,15 +1,16 @@
 defmodule Set do
   @moduledoc ~S"""
-  WARNING: this module is deprecated.
+  Generic API for sets.
 
-  Use the `MapSet` module instead.
+  This module is deprecated, use the `MapSet` module instead.
   """
+
+  @moduledoc deprecated: "Use MapSet instead"
 
   @type value :: any
   @type values :: [value]
   @type t :: map
 
-  # TODO: Remove by 2.0
   message = "Use the MapSet module for working with sets"
 
   defmacrop target(set) do

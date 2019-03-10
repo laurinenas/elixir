@@ -1,8 +1,9 @@
 defmodule Stream do
   @moduledoc """
-  Module for creating and composing streams.
+  Functions for creating and composing streams.
 
-  Streams are composable, lazy enumerables. Any enumerable that generates
+  Streams are composable, lazy enumerables (for an introduction on
+  enumerables, see the `Enum` module). Any enumerable that generates
   items one by one during enumeration is called a stream. For example,
   Elixir's `Range` is a stream:
 
@@ -94,7 +95,10 @@ defmodule Stream do
 
   @type acc :: any
   @type element :: any
+
+  @typedoc "Zero-based index."
   @type index :: non_neg_integer
+
   @type default :: any
 
   # Require Stream.Reducers and its callbacks
@@ -121,19 +125,16 @@ defmodule Stream do
 
   ## Transformers
 
-  # TODO: Remove by 2.0
   @doc false
   @deprecated "Use Stream.chunk_every/2 instead"
   def chunk(enum, n), do: chunk(enum, n, n, nil)
 
-  # TODO: Remove by 2.0
   @doc false
   @deprecated "Use Stream.chunk_every/3 instead"
   def chunk(enum, n, step) do
     chunk_every(enum, n, step, nil)
   end
 
-  # TODO: Remove by 2.0
   @doc false
   @deprecated "Use Stream.chunk_every/4 instead"
   def chunk(enum, n, step, leftover)
@@ -144,7 +145,7 @@ defmodule Stream do
   @doc """
   Shortcut to `chunk_every(enum, count, count)`.
   """
-  @since "1.5.0"
+  @doc since: "1.5.0"
   @spec chunk_every(Enumerable.t(), pos_integer) :: Enumerable.t()
   def chunk_every(enum, count), do: chunk_every(enum, count, count, [])
 
@@ -178,7 +179,7 @@ defmodule Stream do
       [[1, 2, 3], [4, 5, 6]]
 
   """
-  @since "1.5.0"
+  @doc since: "1.5.0"
   @spec chunk_every(Enumerable.t(), pos_integer, pos_integer, Enumerable.t() | :discard) ::
           Enumerable.t()
   def chunk_every(enum, count, step, leftover \\ [])
@@ -232,7 +233,7 @@ defmodule Stream do
       [[1, 2], [3, 4], [5, 6], [7, 8], [9, 10]]
 
   """
-  @since "1.5.0"
+  @doc since: "1.5.0"
   @spec chunk_while(
           Enumerable.t(),
           acc,
@@ -329,7 +330,7 @@ defmodule Stream do
       [1, 2, 3, 4, 5]
 
   """
-  @spec drop(Enumerable.t(), non_neg_integer) :: Enumerable.t()
+  @spec drop(Enumerable.t(), integer) :: Enumerable.t()
   def drop(enum, n) when is_integer(n) and n >= 0 do
     lazy(enum, n, fn f1 -> R.drop(f1) end)
   end
@@ -473,7 +474,6 @@ defmodule Stream do
   end
 
   @doc false
-  # TODO: Remove on 2.0
   @deprecated "Use Stream.filter/2 + Stream.map/2 instead"
   def filter_map(enum, filter, mapper) do
     lazy(enum, fn f1 -> R.filter_map(filter, mapper, f1) end)
@@ -584,7 +584,7 @@ defmodule Stream do
       [1, 2, 3, 4, 5]
 
   """
-  @since "1.4.0"
+  @doc since: "1.4.0"
   @spec map_every(Enumerable.t(), non_neg_integer, (element -> any)) :: Enumerable.t()
   def map_every(enum, nth, fun)
 
@@ -975,7 +975,7 @@ defmodule Stream do
   Keep in mind that, in order to know if an element is unique
   or not, this function needs to store all unique values emitted
   by the stream. Therefore, if the stream is infinite, the number
-  of items stored will grow infinitely, never being garbage collected.
+  of items stored will grow infinitely, never being garbage-collected.
 
   ## Examples
 
@@ -989,7 +989,6 @@ defmodule Stream do
   end
 
   @doc false
-  # TODO: Remove on 2.0
   @deprecated "Use Stream.uniq_by/2 instead"
   def uniq(enum, fun) do
     uniq_by(enum, fun)
@@ -1005,7 +1004,7 @@ defmodule Stream do
   Keep in mind that, in order to know if an element is unique
   or not, this function needs to store all unique values emitted
   by the stream. Therefore, if the stream is infinite, the number
-  of items stored will grow infinitely, never being garbage collected.
+  of items stored will grow infinitely, never being garbage-collected.
 
   ## Example
 
@@ -1111,7 +1110,7 @@ defmodule Stream do
       [{1, :a, "foo"}, {2, :b, "bar"}, {3, :c, "baz"}]
 
   """
-  @since "1.4.0"
+  @doc since: "1.4.0"
   @spec zip([Enumerable.t()]) :: Enumerable.t()
   @spec zip(Enumerable.t()) :: Enumerable.t()
   def zip(enumerables) do
@@ -1240,7 +1239,8 @@ defmodule Stream do
     fn acc, fun ->
       inner = &do_cycle_each(&1, &2, fun)
       outer = &Enumerable.reduce(enumerable, &1, inner)
-      do_cycle(outer, outer, acc)
+      reduce = check_cycle_first_element(outer)
+      do_cycle(reduce, outer, acc)
     end
   end
 
@@ -1259,9 +1259,6 @@ defmodule Stream do
       {:stream_cycle, acc} ->
         {:halted, acc}
     else
-      {state, []} when state in [:done, :halted] ->
-        raise ArgumentError, "cannot cycle over empty enumerable"
-
       {state, acc} when state in [:done, :halted] ->
         do_cycle(cycle, cycle, {:cont, acc})
 
@@ -1274,6 +1271,18 @@ defmodule Stream do
     case f.(x, acc) do
       {:halt, h} -> throw({:stream_cycle, h})
       {_, _} = o -> o
+    end
+  end
+
+  defp check_cycle_first_element(reduce) do
+    fn acc ->
+      case reduce.(acc) do
+        {state, []} when state in [:done, :halted] ->
+          raise ArgumentError, "cannot cycle over empty enumerable"
+
+        other ->
+          other
+      end
     end
   end
 
@@ -1345,14 +1354,16 @@ defmodule Stream do
 
   ## Examples
 
-      Stream.resource(fn -> File.open!("sample") end,
-                      fn file ->
-                        case IO.read(file, :line) do
-                          data when is_binary(data) -> {[data], file}
-                          _ -> {:halt, file}
-                        end
-                      end,
-                      fn file -> File.close(file) end)
+      Stream.resource(
+        fn -> File.open!("sample") end,
+        fn file ->
+          case IO.read(file, :line) do
+            data when is_binary(data) -> {[data], file}
+            _ -> {:halt, file}
+          end
+        end,
+        fn file -> File.close(file) end
+      )
 
   """
   @spec resource((() -> acc), (acc -> {[element], acc} | {:halt, acc}), (acc -> term)) ::
@@ -1499,7 +1510,7 @@ defmodule Stream do
       []
 
   """
-  @since "1.6.0"
+  @doc since: "1.6.0"
   @spec intersperse(Enumerable.t(), any) :: Enumerable.t()
   def intersperse(enumerable, intersperse_element) do
     Stream.transform(enumerable, false, fn

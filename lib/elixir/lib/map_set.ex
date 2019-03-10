@@ -41,7 +41,7 @@ defmodule MapSet do
   @opaque t(value) :: %__MODULE__{map: %{optional(value) => []}}
   @type t :: t(term)
 
-  # TODO: Remove version key on Elixir 2.0
+  # TODO: Remove version key on v2.0
   defstruct map: %{}, version: 2
 
   @doc """
@@ -398,6 +398,7 @@ defmodule MapSet do
     import Inspect.Algebra
 
     def inspect(map_set, opts) do
+      opts = %Inspect.Opts{opts | charlists: :as_lists}
       concat(["#MapSet<", Inspect.List.inspect(MapSet.to_list(map_set), opts), ">"])
     end
   end

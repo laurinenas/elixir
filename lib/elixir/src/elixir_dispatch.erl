@@ -52,7 +52,7 @@ import_function(Meta, Name, Arity, E) ->
       case elixir_import:special_form(Name, Arity) of
         true  -> false;
         false ->
-          elixir_locals:record_local(Tuple, ?key(E, module), ?key(E, function)),
+          elixir_locals:record_local(Tuple, ?key(E, module), ?key(E, function), Meta, false),
           {local, Name, Arity}
       end
   end.
@@ -131,7 +131,7 @@ expand_import(Meta, {Name, Arity} = Tuple, Args, E, Extra, External) ->
 
         %% Dispatch to the local.
         _ ->
-          elixir_locals:record_local(Tuple, Module, Function),
+          elixir_locals:record_local(Tuple, Module, Function, Meta, true),
           {ok, Module, expand_macro_fun(Meta, Local, Module, Name, Args, E)}
       end
   end.
@@ -163,7 +163,7 @@ do_expand_import(Meta, {Name, Arity} = Tuple, Args, Module, E, Result) ->
 
 expand_require(Meta, Receiver, {Name, Arity} = Tuple, Args, E) ->
   check_deprecation(Meta, Receiver, Name, Arity, E),
-  Required = (Receiver == ?key(E, module)) orelse is_element(Receiver, ?key(E, requires)) orelse required(Meta),
+  Required = (Receiver == ?key(E, module)) orelse required(Meta) orelse is_element(Receiver, ?key(E, requires)),
 
   case is_element(Tuple, get_macros(Receiver, Required)) of
     true when Required ->
@@ -185,8 +185,7 @@ expand_macro_fun(Meta, Fun, Receiver, Name, Args, E) ->
   try
     apply(Fun, [EArg | Args])
   catch
-    Kind:Reason ->
-      Stacktrace = erlang:get_stacktrace(),
+    ?WITH_STACKTRACE(Kind, Reason, Stacktrace)
       Arity = length(Args),
       MFA  = {Receiver, elixir_utils:macro_name(Name), Arity+1},
       Info = [{Receiver, Name, Arity, [{file, "expanding macro"}]}, caller(Line, E)],
@@ -201,15 +200,14 @@ expand_macro_named(Meta, Receiver, Name, Arity, Args, E) ->
 
 expand_quoted(Meta, Receiver, Name, Arity, Quoted, E) ->
   Line = ?line(Meta),
-  Next = erlang:unique_integer(),
+  Next = elixir_module:next_counter(?key(E, module)),
 
   try
     elixir_expand:expand(
       elixir_quote:linify_with_context_counter(Line, {Receiver, Next}, Quoted),
       E)
   catch
-    Kind:Reason ->
-      Stacktrace = erlang:get_stacktrace(),
+    ?WITH_STACKTRACE(Kind, Reason, Stacktrace)
       MFA  = {Receiver, elixir_utils:macro_name(Name), Arity+1},
       Info = [{Receiver, Name, Arity, [{file, "expanding macro"}]}, caller(Line, E)],
       erlang:raise(Kind, Reason, prune_stacktrace(Stacktrace, MFA, Info, error))
@@ -330,7 +328,7 @@ elixir_imported_macros() ->
 %% Inline common cases.
 check_deprecation(Meta, ?kernel, to_char_list, 1, E) ->
   Message = "Kernel.to_char_list/1 is deprecated. Use Kernel.to_charlist/1 instead",
-  elixir_errors:warn(?line(Meta), ?key(E, file), Message);
+  elixir_errors:erl_warn(?line(Meta), ?key(E, file), Message);
 check_deprecation(_, ?kernel, _, _, _) ->
   ok;
 check_deprecation(_, erlang, _, _, _) ->
@@ -345,7 +343,7 @@ check_deprecation(Meta, 'Elixir.System', stacktrace, 0, #{contextual_vars := Var
           "If you want to support only Elixir v1.7+, you must access __STACKTRACE__ "
           "inside a rescue/catch. If you want to support earlier Elixir versions, "
           "move System.stacktrace/0 inside a rescue/catch",
-      elixir_errors:warn(?line(Meta), ?key(E, file), Message)
+      elixir_errors:erl_warn(?line(Meta), ?key(E, file), Message)
   end;
 check_deprecation(Meta, Receiver, Name, Arity, E) ->
   case (get(elixir_compiler_dest) == undefined) andalso is_module_loaded(Receiver) andalso
@@ -354,7 +352,7 @@ check_deprecation(Meta, Receiver, Name, Arity, E) ->
       case lists:keyfind({Name, Arity}, 1, Deprecations) of
         {_, Message} ->
           Warning = deprecation_message(Receiver, Name, Arity, Message),
-          elixir_errors:warn(?line(Meta), ?key(E, file), Warning);
+          elixir_errors:erl_warn(?line(Meta), ?key(E, file), Warning);
         false ->
           ok
       end;
